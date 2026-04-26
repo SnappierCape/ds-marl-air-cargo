@@ -1,0 +1,95 @@
+# =============================================================================
+# SIMULATION PARAMETERS CONFIG FILE
+# =============================================================================
+# DESCRIPTION:
+#   This module stores all the parameters of the simulation in a centralized
+#   way. Every other module imports this variables from here to allow
+#   for centralized management.
+# =============================================================================
+
+# =============================================================================
+# GHA DOCKS
+# =============================================================================
+gha_docks:
+  dnata:
+    total: 50
+    import: 25
+    export: 25
+  klm:
+    total: 48
+    import: 24
+    export: 24
+  swissport:
+    total: 30
+    import: 15
+    export: 15
+  menzies_wfs:
+    total: 28
+    import: 14
+    export: 14
+
+# =============================================================================
+# TP3
+# =============================================================================
+tp3:
+  capacity: 140
+
+# =============================================================================
+# SERVICE TIME
+# =============================================================================
+service_time:
+  export:
+    family: "uniform"
+    params: {low: 15.0, high: 60.0}
+  import:
+    family: "uniform"
+    params: {low: 10.0, high: 30.0}
+
+# =============================================================================
+# TRAVEL TIME
+# =============================================================================
+travel_time:
+  sigma: 0.20    # lognormal sigma
+  segments:
+    N0_N1: 2.0
+    N0_N2: 1.0
+    N1_N2: 1.0
+    N2_N3: 1.5
+    N2_N4: 2.0
+    N2_N5: 2.5 
+    N2_N6: 1.0
+
+# =============================================================================
+# DEMAND MODEL
+# =============================================================================
+demand:
+  episode_start_min: 360
+  episode_end_min: 1440
+  base_rate_per_hour: 18
+  peak_multiplier: 2.5
+  peak_window: [900, 1050]
+  flow_split:
+    export: 0.60
+    import: 0.40
+  origin_split:
+    rfs: 0.25
+    random_nl: 0.35
+    forwarder_hub: 0.30
+    tp3: 0.10
+
+# =============================================================================
+# DEMAND MODEL
+# =============================================================================
+marl:
+  step_minutes: 1
+  alpha: 0.5
+  gamma: 0.99
+  reward_weights:
+    w_parcel_on_time: 2.0
+    w_wait_per_min: 0.05
+    w_missed_slot: 10.0
+    w_no_show: 5.0
+    w_dock_util: 5.0
+    w_queue_per_step: 0.1
+    w_wpr_global: 1.0
+    w_util_std: 0.5

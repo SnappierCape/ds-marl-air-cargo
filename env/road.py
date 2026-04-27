@@ -26,7 +26,7 @@ class RoadNetwork:
     def __init__(self, cfg: Dict):
         # Extract the travel_time section from the global config
         self.cfg = cfg.get("travel_time", {})
-        self.sigma = self.cfg.get("sigma", 0.20)
+        self.sigma = self.cfg.get("sigma", 0.20)    # Hardcoded.
         
         # Default base times (minutes) if missing from config
         self.segments = self.cfg.get("segments", {

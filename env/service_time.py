@@ -28,7 +28,7 @@ class ServiceTimeModel:
       t = model.sample("import")    # → float, minutes
     """
     def __init__(self, cfg: Dict):
-        self.cfg = cfg    # {"export": {family, params}, "import": {family, params}}
+        self.cfg = cfg
         self._validate(cfg)
 
     def _validate(self, cfg):

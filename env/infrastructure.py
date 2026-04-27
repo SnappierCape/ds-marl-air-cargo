@@ -1,13 +1,22 @@
+# =============================================================================
+# INFRASTRUCTURE MODULE
+# =============================================================================
+# DESCRIPTION:
+#     Infrastructure module that contains all the classes for the checkpoint
+#     tracking at the Airport.
+# =============================================================================
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 from enum import Enum
 
+# =============================================================================
+# CHECKPOINTS
+# =============================================================================
 class CheckpointID(Enum):
-    # ANPR cameras
-    GATE_IN        = "gate_in"       # Main Gate — truck enters perimeter
-    GATE_OUT       = "gate_out"      # Main Gate — truck exits perimeter
-    TP3_IN         = "tp3_in"        # TP3 entrance ANPR
-    TP3_OUT        = "tp3_out"       # TP3 exit ANPR
+    GATE_IN        = "gate_in"
+    GATE_OUT       = "gate_out"
+    TP3_IN         = "tp3_in"
+    TP3_OUT        = "tp3_out"
     GHA_IN_DNATA   = "gha_in_dnata"
     GHA_IN_KLM     = "gha_in_klm"
     GHA_IN_SWISS   = "gha_in_swissport"
@@ -16,10 +25,12 @@ class CheckpointID(Enum):
     GHA_OUT_KLM    = "gha_out_klm"
     GHA_OUT_SWISS  = "gha_out_swissport"
     GHA_OUT_MENZ   = "gha_out_menzies_wfs"
-    # Dock sensors (one per dock door — modelled as dock-level events)
-    DOCK_START     = "dock_start"    # truck backs into dock
-    DOCK_END       = "dock_end"      # truck pulls out of dock
+    DOCK_START     = "dock_start"
+    DOCK_END       = "dock_end"
 
+# =============================================================================
+# SENSORS
+# =============================================================================
 @dataclass
 class SensorEvent:
     """
@@ -27,15 +38,18 @@ class SensorEvent:
     This is the unit of data that KPITracker and agents consume.
     In the real system, these are rows in the eLink/ANPR database.
     """
-    sim_time:    float           # simulation minutes since 00:00
-    checkpoint:  CheckpointID
-    truck_id:    str
-    flow_type:   str             # "export" | "import"
-    gha_id:      Optional[str]   # set for GHA and dock events
-    dock_id:     Optional[int]   # set for dock events only
-    n_parcels:   Optional[int]   # set when known (from manifest)
-    slot_window: Optional[float] # booked slot start time
+    sim_time: float
+    checkpoint: CheckpointID
+    truck_id: str
+    flow_type: str
+    gha_id: Optional[str]
+    dock_id: Optional[int]
+    n_parcels: Optional[int]
+    slot_window: Optional[float]
 
+# =============================================================================
+# INFRASTRUCTURE
+# =============================================================================
 class InfrastructureLayer:
     """
     Manages all sensor checkpoints in the simulation.
@@ -45,8 +59,8 @@ class InfrastructureLayer:
       - Agent obs   (for recent_events in observation vectors)
     """
     def __init__(self):
-        self.event_log: List[SensorEvent] = []    # full episode log
-        self.step_buffer: List[SensorEvent] = []  # events in current 5-min step
+        self.event_log: List[SensorEvent] = []
+        self.step_buffer: List[SensorEvent] = []
 
     def log(self, event: SensorEvent):
         self.event_log.append(event)
@@ -57,8 +71,6 @@ class InfrastructureLayer:
         events = self.step_buffer.copy()
         self.step_buffer.clear()
         return events
-
-    # ── Convenience emitters (called from simulation.py) ──
 
     def gate_in(self, sim_time, truck):
         self.log(SensorEvent(
@@ -107,3 +119,6 @@ class InfrastructureLayer:
             gha_id=gha_id, dock_id=dock_id, n_parcels=None,
             slot_window=truck.booked_slots.get(gha_id)))
         truck.timestamps[f"dock_end_{gha_id}"] = sim_time
+    
+    def get_all_events(self) -> List[SensorEvent]:
+        return self.event_log

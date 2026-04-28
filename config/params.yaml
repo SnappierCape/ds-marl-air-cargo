@@ -10,7 +10,7 @@
 # =============================================================================
 # GHA DOCKS
 # =============================================================================
-gha_docks:
+gha:
   dnata:
     total: 50
     import: 25
@@ -19,11 +19,11 @@ gha_docks:
     total: 48
     import: 24
     export: 24
-  swissport:
+  swiss:
     total: 30
     import: 15
     export: 15
-  menzies_wfs:
+  wfs:
     total: 28
     import: 14
     export: 14
@@ -49,7 +49,7 @@ service_time:
 # TRAVEL TIME
 # =============================================================================
 travel_time:
-  sigma: 0.20    # lognormal sigma
+  sigma: 0.20
   segments:
     N0_N1: 2.0
     N0_N2: 1.0
@@ -78,10 +78,10 @@ demand:
     tp3: 0.10
 
 # =============================================================================
-# DEMAND MODEL
+# MARL HYPERPARAMETERS
 # =============================================================================
 marl:
-  step_minutes: 1
+  step_min: 1
   alpha: 0.5
   gamma: 0.99
   reward_weights:
@@ -93,3 +93,13 @@ marl:
     w_queue_per_step: 0.1
     w_wpr_global: 1.0
     w_util_std: 0.5
+
+# =============================================================================
+# BOOKING RULES
+# =============================================================================
+booking:
+  priority_window: 10
+  slot_duration: 45
+  lead_time: 7040
+  freeze_time: 60
+  

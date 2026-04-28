@@ -5,9 +5,8 @@ import sys
 import os
 import numpy as np
 
-# Setting base path.
+# Setting base path for local imports.
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-
 from env.service_time import ServiceTimeModel
 from env.road import RoadNetwork
 from env.dtp_platform import DTPPlatform

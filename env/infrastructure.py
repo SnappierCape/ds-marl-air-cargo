@@ -5,8 +5,8 @@
 #     Infrastructure module that contains all the classes for the checkpoint
 #     tracking at the Airport.
 # =============================================================================
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from dataclasses import dataclass
+from typing import List, Optional
 from enum import Enum
 
 # =============================================================================

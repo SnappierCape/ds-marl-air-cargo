@@ -5,48 +5,76 @@
 #     Rule engine that manages slot reservations, validates truck arrivals
 #     against their booked windows, and handles penalty tracking (no-shows).
 # =============================================================================
+import sys
+import os
+from typing import Dict, Optional, List
+
 import simpy
-from typing import Dict, Optional
+
+# Setting base path for local imports.
+sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
+import config.config as config
+
+# =============================================================================
+# SETTINGS IMPORT
+# =============================================================================
+params = config.load_config()
 
 # =============================================================================
 # DPT PLATFORM MODEL
 # =============================================================================
 class DTPPlatform:
     """
-    Digital Transport Platform logic engine.
+    Truck Slot Booking logic engine.
     Pure Python logic; relies on the SimPy environment solely to check 'env.now'.
     """
-    def __init__(self, env: simpy.Environment):
+    def __init__(
+        self,
+        env: simpy.Environment,
+        slot_duration: int = params["booking"]["slot_duration"],
+        priority_window: int = params["booking"]["priority_window"],
+        freeze_time: int = params["booking"]["freeze_time"],
+        lead_time: int = params["booking"]["lead_time"]
+    ):
         self.env = env
+        self.slot_duration = slot_duration
+        self.priority_window = priority_window
+        self.freeze_time = freeze_time
+        self.lead_time = lead_time
         
-        # Registry Structure: slots[gha_id][time_min] = {"capacity": int, "booked": int}
-        self.registry: Dict[str, Dict[float, Dict]] = {
-            "dnata": {}, "klm": {}, "swissport": {}, "menzies_wfs": {}
+        # Registry Structure: {"gha": {time: [{"truck_id": str|None, "phase": str}, ...]}}
+        self.registry: Dict[str, Dict[int, List[Dict]]] = {
+            gha: {} for gha in list(params["gha_docks"])
         }
         
-        # Track penalties for the KPI/Reward calculation later
         self.no_shows: Dict[str, int] = {}
 
-    def publish_slot(self, gha_id: str, time_min: float, capacity: int = 10):
-        """Initializes a booking slot in the registry."""
-        if gha_id in self.registry:
-            self.registry[gha_id][time_min] = {
-                "capacity": capacity,
-                "booked": 0
-            }
-
-    def book_slot(self, gha_id: str, time_min: float) -> bool:
-        """
-        Attempts to reserve a slot. Returns True if successful.
-        Called by Transporter Agents or the Orchestrator.
-        """
-        if gha_id not in self.registry or time_min not in self.registry[gha_id]:
+    def publish_slot(self, gha: str, time: float) -> bool:
+        if gha not in self.registry:
+            raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
+        
+        if time - self.env.now > self.lead_time * 60:    # simpy uses seconds
             return False
+        
+        n_docks = params["gha"][gha]["total"]
+        if len(self.registry[gha][time]) >= n_docks:
+            return False
+        
+        if time not in self.registry[gha]:
+            self.registry[gha][time] = []
             
-        slot = self.registry[gha_id][time_min]
-        if slot["booked"] < slot["capacity"]:
-            slot["booked"] += 1
-            return True
+        self.registry[gha][time].append(
+            {"truck_id": None, "phase": "available"}
+        )
+        return True
+
+    def book_slot(self, gha: str, time: float, truck_id: str) -> bool:
+        slots = self.registry.get(gha, {}).get(time, [])
+        for slot in slots:
+            if slot["truck_id"] is None:
+                slot["truck_id"] = truck_id
+                slot["phase"] = "booked"
+                return True
         return False
 
     def get_slot_phase(self, gha_id: str, slot_start: Optional[float], arrival_time: float, is_dock_full: bool = False) -> str:

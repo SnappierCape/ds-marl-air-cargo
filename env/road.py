@@ -18,17 +18,15 @@ class RoadNetwork:
       N0: Main Gate / Perimeter entry
       N1: TP3 Buffer Zone
       N2: Main road split
-      N3: Dnata
-      N4: Menzies-WFS
-      N5: Swissport
-      N6: KLM Cargo
+      N3: dnata
+      N4: wfs
+      N5: swiss
+      N6: klm
     """
     def __init__(self, cfg: Dict):
-        # Extract the travel_time section from the global config
         self.cfg = cfg.get("travel_time", {})
         self.sigma = self.cfg.get("sigma", 0.20)    # Hardcoded.
         
-        # Default base times (minutes) if missing from config
         self.segments = self.cfg.get("segments", {
             "N0_N1": 2.0,
             "N0_N2": 1.0,
@@ -39,11 +37,10 @@ class RoadNetwork:
             "N2_N6": 1.0
         })
         
-        # Map GHA strings to their physical node destinations
         self.gha_nodes = {
             "dnata": "N3",
-            "menzies_wfs": "N4",
-            "swissport": "N5",
+            "wfs": "N4",
+            "swiss": "N5",
             "klm": "N6"
         }
 
@@ -60,8 +57,7 @@ class RoadNetwork:
         mu = np.log(base_time) - (self.sigma**2) / 2
         sampled_time = np.random.lognormal(mean=mu, sigma=self.sigma)
         
-        # Clip to prevent extreme outliers (e.g., a truck taking 50 mins for a 2 min drive)
-        return float(np.clip(sampled_time, base_time * 0.5, base_time * 3.0))
+        return float(np.clip(sampled_time, base_time * 0.5, base_time * 3.0))    # Hardcoded.
 
     def time_gate_to_gha(self, gha_id: str) -> float:
         """Calculate travel time from Main Gate (N0) straight to a GHA."""

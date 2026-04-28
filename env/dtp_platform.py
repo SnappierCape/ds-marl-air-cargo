@@ -13,7 +13,7 @@ import simpy
 
 # Setting base path for local imports.
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
+import config.config
 
 # =============================================================================
 # SETTINGS IMPORT
@@ -42,80 +42,82 @@ class DTPPlatform:
         self.freeze_time = freeze_time
         self.lead_time = lead_time
         
-        # Registry Structure: {"gha": {time: [{"truck_id": str|None, "phase": str}, ...]}}
+        # Registry Structure: {"gha": {slot_start: [{"truck_id": str|None, "phase": str}, ...]}}
         self.registry: Dict[str, Dict[int, List[Dict]]] = {
             gha: {} for gha in list(params["gha_docks"])
         }
         
         self.no_shows: Dict[str, int] = {}
 
-    def publish_slot(self, gha: str, time: float) -> bool:
+    def publish_slot(self, gha: str, slot_start: float) -> bool:
         if gha not in self.registry:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         
-        if time - self.env.now > self.lead_time * 60:    # simpy uses seconds
+        if slot_start - self.env.now > self.lead_time * 60:    # simpy uses seconds
             return False
         
         n_docks = params["gha"][gha]["total"]
-        if len(self.registry[gha][time]) >= n_docks:
+        if len(self.registry[gha][slot_start]) >= n_docks:
             return False
         
-        if time not in self.registry[gha]:
-            self.registry[gha][time] = []
+        if slot_start not in self.registry[gha]:
+            self.registry[gha][slot_start] = []
             
-        self.registry[gha][time].append(
+        self.registry[gha][slot_start].append(
             {"truck_id": None, "phase": "available"}
         )
         return True
 
-    def book_slot(self, gha: str, time: float, truck_id: str) -> bool:
-        slots = self.registry.get(gha, {}).get(time, [])
-        for slot in slots:
-            if slot["truck_id"] is None:
-                slot["truck_id"] = truck_id
-                slot["phase"] = "booked"
-                return True
+    # NOTE: I have to implement the slot overlapping logic.
+    def book_slot(self, gha: str, slot_start: float, truck_id: str) -> bool:
+        if slot_start - self.env.now > self.freeze_time:
+            slots = self.registry.get(gha, {}).get(slot_start, [])
+            for slot in slots:
+                if slot["truck_id"] is None:
+                    slot["truck_id"] = truck_id
+                    slot["phase"] = "booked"
+                    return True
+            return False
         return False
 
-    def get_slot_phase(self, gha_id: str, slot_start: Optional[float], arrival_time: float, is_dock_full: bool = False) -> str:
+    def get_slot_phase(
+        self,
+        gha: str,
+        book_start: Optional[int],
+        arrival_time: int,
+        dock_is_free: bool = False
+    ) -> str:
         """
         Determines the status of a truck's arrival relative to its booked slot.
         
         Parameters:
         -----------
-        gha_id : str
-        slot_start : float (The timestamp the slot begins, e.g., 480 for 08:00)
-        arrival_time : float (Current simulation time)
-        is_dock_full : bool (Passed by simulation.py to check standby status)
+        gha : str
+        slot_start : int
+            The time of the slot start in minutes
+        arrival_time : int
+            The time at which the truck shown up
+        is_dock_full : bool
+            Passed by simulation.py to check standby status
         
         Returns:
         --------
-        phase : str ("unbooked", "early", "on_time", "late", "late_dock_full", "no_show")
+        phase : str ("unbooked", "early", "priority", "release", "release_dock_taken", "no_show")
         """
-        if slot_start is None:
-            return "unbooked"
-            
-        # Define slot window bounds (Assuming a 30-minute window width)
-        # Truck is allowed to arrive 15 minutes early.
-        window_start = slot_start - 15.0  
-        window_release = slot_start + 15.0 # After 15 mins, slot given to standby
-        window_end = slot_start + 30.0    # Absolute end of slot
+        if book_start is None:
+            return "unbooked"    # useful to call the function without creating a specific truck
+          
+        offset = arrival_time - book_start
         
-        if arrival_time < window_start:
+        if offset < 0:
             return "early"
-            
-        elif window_start <= arrival_time <= window_release:
-            return "on_time"
-            
-        elif window_release < arrival_time <= window_end:
-            # Truck arrived in the second half of its slot. 
-            # If a standby truck took the dock, they are redirected to TP3.
-            if is_dock_full:
-                return "late_dock_full"
-            return "late"
-            
-        else:
-            return "no_show"
+        elif offset <= self.priority_window:
+            return "priority"
+        elif offset <= self.slot_duration:
+            if dock_is_free:
+                return "release"
+            return "release_dock_taken"
+        return "no_show"
 
     def record_no_show(self, truck_id: str):
         """Logs a no-show infraction for reward penalty and R13 enforcement."""

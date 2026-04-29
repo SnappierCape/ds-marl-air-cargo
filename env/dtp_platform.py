@@ -4,6 +4,20 @@
 # DESCRIPTION:
 #     Rule engine that manages slot reservations, validates truck arrivals
 #     against their booked windows, and handles penalty tracking (no-shows).
+#
+# KEY DATA STRUCTURES:
+#     registry = {
+#         "gha": {
+#             "slot_start": [
+#                 {"truck_id": "TRK-999", "phase": "unbooked"},
+#                 {"truck_id": "ABC-123", "phase": "released"},
+#                 ...
+#             ]
+#         }
+#     }
+#
+#     The "phase" parameter could assume these values: "unbooked", "early", "priority", "release", "release_dock_taken", "no_show".
+#        
 # =============================================================================
 import sys
 import os
@@ -42,7 +56,6 @@ class DTPPlatform:
         self.freeze_time = freeze_time
         self.lead_time = lead_time
         
-        # Registry Structure: {"gha": {slot_start: [{"truck_id": str|None, "phase": str}, ...]}}
         self.registry: Dict[str, Dict[int, List[Dict]]] = {
             gha: {} for gha in list(params["gha_docks"])
         }
@@ -166,15 +179,22 @@ class DTPPlatform:
         if not self.orch_cancel_book(truck_id, from_gha, from_book_start):
             return False
         return self.book_slot(to_gha, to_book_start, truck_id)
+    
+    
+    def send_to_tp3(self, gha: str, book_start: int) -> bool:
+        if gha not in self.registry:
+            raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
+        if book_start not in self.registry[gha]:
+            return False
         
+        now = self.env.now / 60
+        slots = self.registry[gha][book_start]
         
-    def record_no_show(self, truck_id: str):
-        """Logs a no-show infraction for reward penalty and R13 enforcement."""
-        self.no_shows[truck_id] = self.no_shows.get(truck_id, 0) + 1
-
-    def is_restricted(self, truck_id: str) -> bool:
-        """
-        R13 Constraint Implementation.
-        If a truck has 3 or more no-shows, it is barred from the DTP app.
-        """
-        return self.no_shows.get(truck_id, 0) >= 3
+        for slot in slots:
+            if now - book_start >= self.slot_duration:
+                return True
+            elif now - book_start >= self.priority_window:
+                if slot["phase"] == "unbooked":
+                    return False
+                return True
+            return False

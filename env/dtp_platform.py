@@ -172,13 +172,18 @@ class DTPPlatform:
     ) -> bool:
         if from_gha not in self.registry:
             raise ValueError(f'GHA "{from_gha}" is not known, please insert a known GHA.')
+        if to_gha not in self.registry:
+            raise ValueError(f'GHA "{to_gha}" is not known, please insert a known GHA.')
         if from_book_start not in self.registry[from_gha]:
             return False
-        
-        if not self.orch_cancel_book(truck_id, from_gha, from_book_start):
+        if to_book_start not in self.registry[to_gha]:
             return False
-        return self.book_slot(to_gha, to_book_start, truck_id)
-    
+        for slot in self.registry[to_gha][to_book_start]:
+            if slot["truck_id"] is None:        
+                if not self.orch_cancel_book(truck_id, from_gha, from_book_start):
+                    return False
+                return self.book_slot(to_gha, to_book_start, truck_id)
+        return False
     
     def send_to_tp3(self, gha: str, book_start: int, truck_id: str) -> bool:
         if gha not in self.registry:

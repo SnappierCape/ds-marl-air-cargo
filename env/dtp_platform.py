@@ -223,3 +223,60 @@ class DTPPlatform:
             if slot["phase"] == "booked":
                 return True
         return False
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Dock state logic
+    # ─────────────────────────────────────────────────────────────────────────
+    def mark_docked(self, gha:str, slot_start: int, truck_id: str):
+        for slot in self.registry.get(gha, {}).get(slot_start, []):
+            if slot["truck_id"] == truck_id:
+                slot["phase"] = "docked"
+                return
+            
+    def mark_closed(self, gha:str, slot_start: int, truck_id: str):
+        for slot in self.registry.get(gha, {}).get(slot_start, []):
+            if slot["truck_id"] == truck_id:
+                slot["phase"] = "closed"
+                return
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Penalty tracking
+    # ─────────────────────────────────────────────────────────────────────────
+    def record_late(self, truck_id: str):
+        self.late_arrivals[truck_id] = self.late_arrivals.get(truck_id, 0) + 1
+        
+    def record_no_show(self, gha: str, slot_start: int, truck_id: str):
+        self.no_shows[truck_id] = self.no_shows.get(truck_id, 0) + 1
+        for slot in self.registry.get(gha, {}).get(slot_start, []):
+            if slot["truck_id"] == truck_id:
+                slot["phase"] = "no_show"
+                return
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Public helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    def get_available_slots(self, gha: str, horizon: int = 480) -> List[int]:
+        now = self.env.now
+        result = []
+        
+        for slot_start, slots in self.registry.get(gha, {}).items():
+            if slot_start - now < self.freeze_time:
+                continue
+            if slot_start - now > horizon:
+                continue
+            if any(
+                slot["truck_id"] is None and slot["phase"] == "available"
+                for slot in slots
+            ):
+                result.append(slot_start)
+            return sorted(result)
+        
+    def get_booking(self, gha: str, truck_id: str) -> Optional[int]:
+        for slot_start, slots in self.registry.get(gha, {}).items():
+            for slot in slots:
+                if slot["truck_id"] == truck_id and slot["phase"] in ("booked", "docked"):
+                    return slot_start
+        return None
+    
+    def count_available_slots(self, gha: str, horizon: int = 480) -> int:
+        return len(self.get_available_slots(gha, horizon))

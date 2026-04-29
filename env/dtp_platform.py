@@ -50,7 +50,7 @@ class DTPPlatform:
         freeze_time: int = params["booking"]["freeze_time"],
         lead_time: int = params["booking"]["lead_time"]
     ):
-        self.env = env
+        self.env = env / 60
         self.slot_duration = slot_duration
         self.priority_window = priority_window
         self.freeze_time = freeze_time
@@ -66,16 +66,16 @@ class DTPPlatform:
         if gha not in self.registry:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         
-        if slot_start - (self.env.now /  60) > self.lead_time:    # simpy uses seconds
+        if slot_start - self.env.now > self.lead_time:    # simpy uses seconds
             return False
         
         n_docks = params["gha"][gha]["total"]
+        if slot_start not in self.registry[gha]:
+            self.registry[gha][slot_start] = []
+
         if len(self.registry[gha][slot_start]) >= n_docks:
             return False
         
-        if slot_start not in self.registry[gha]:
-            self.registry[gha][slot_start] = []
-            
         self.registry[gha][slot_start].append(
             {"truck_id": None, "phase": "available"}
         )
@@ -95,7 +95,6 @@ class DTPPlatform:
 
     def get_slot_phase(
         self,
-        gha: str,
         book_start: Optional[int],
         arrival_time: int,
         dock_is_free: bool = False
@@ -137,7 +136,7 @@ class DTPPlatform:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         if book_start not in self.registry[gha]:
             return False
-        if book_start - (self.env.now / 60) < self.freeze_time:
+        if book_start - self.env.now < self.freeze_time:
             return False
         
         slots = self.registry[gha][book_start]
@@ -181,20 +180,22 @@ class DTPPlatform:
         return self.book_slot(to_gha, to_book_start, truck_id)
     
     
-    def send_to_tp3(self, gha: str, book_start: int) -> bool:
+    def send_to_tp3(self, gha: str, book_start: int, truck_id: str) -> bool:
         if gha not in self.registry:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         if book_start not in self.registry[gha]:
             return False
         
-        now = self.env.now / 60
+        now = self.env.now
         slots = self.registry[gha][book_start]
         
         for slot in slots:
-            if now - book_start >= self.slot_duration:
-                return True
-            elif now - book_start >= self.priority_window:
-                if slot["phase"] == "unbooked":
-                    return False
-                return True
-            return False
+            if slot["truck_id"] == truck_id:
+                if now - book_start >= self.slot_duration:
+                    return True
+                elif now - book_start >= self.priority_window:
+                    if slot["phase"] == "unbooked":
+                        return False
+                    return True
+                return False
+        return False

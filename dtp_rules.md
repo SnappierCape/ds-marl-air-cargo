@@ -12,5 +12,5 @@
    - If the dock is not free → the original truck is redirected to TP3 as a standby truck. It does not need to rebook a new slot. Its existing booking remains valid and it re-enters the queue when the Orchestrator or its own timing releases it.
 9. A truck that shows up after its own slot has expired is recorded as "no show" and the penalty is logged for RL feedback purposes. The truck is redirected at tp3. It can book another slot or the Orchestrator can send it to a GHA.
 10. The transporter can cancel a booking outside of the frozen window, only the Orchestrator can cancel a booking inside the froozen window.
-11. GHAs can remove from the DTP platform unbooked published slot outside of the frozen window.
+11. GHAs can not remove a published slot.
 12. For each GHA, the total amount of docks is split equally among export and import. GHAs can not have an odd number of docks.

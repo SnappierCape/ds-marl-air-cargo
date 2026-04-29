@@ -53,7 +53,7 @@ class DTPPlatform:
         if gha not in self.registry:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         
-        if slot_start - self.env.now > self.lead_time * 60:    # simpy uses seconds
+        if slot_start - (self.env.now /  60) > self.lead_time:    # simpy uses seconds
             return False
         
         n_docks = params["gha"][gha]["total"]
@@ -124,6 +124,8 @@ class DTPPlatform:
             raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
         if book_start not in self.registry[gha]:
             return False
+        if book_start - (self.env.now / 60) < self.freeze_time:
+            return False
         
         slots = self.registry[gha][book_start]
         for slot in slots:
@@ -132,8 +134,40 @@ class DTPPlatform:
                 slot["truck_id"] = None
                 return True
         return False
+    
+    def orch_cancel_book(self, truck_id: str, gha: str, book_start: int) -> bool:
+        if gha not in self.registry:
+            raise ValueError(f'GHA "{gha}" is not known, please insert a known GHA.')
+        if book_start not in self.registry[gha]:
+            return False
         
-
+        slots = self.registry[gha][book_start]
+        for slot in slots:
+            if slot["truck_id"] == truck_id:
+                slot["phase"] = "available"
+                slot["truck_id"] = None
+                return True
+        return False
+    
+    # NOTE: I have to implent the slot availability check to prevent stranded trucks.
+    def orch_modify_book(
+        self,
+        truck_id: str,
+        from_gha: str,
+        from_book_start: int,
+        to_gha: str,
+        to_book_start: int
+    ) -> bool:
+        if from_gha not in self.registry:
+            raise ValueError(f'GHA "{from_gha}" is not known, please insert a known GHA.')
+        if from_book_start not in self.registry[from_gha]:
+            return False
+        
+        if not self.orch_cancel_book(truck_id, from_gha, from_book_start):
+            return False
+        return self.book_slot(to_gha, to_book_start, truck_id)
+        
+        
     def record_no_show(self, truck_id: str):
         """Logs a no-show infraction for reward penalty and R13 enforcement."""
         self.no_shows[truck_id] = self.no_shows.get(truck_id, 0) + 1

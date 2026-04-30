@@ -280,3 +280,20 @@ class DTPPlatform:
     
     def count_available_slots(self, gha: str, horizon: int = 480) -> int:
         return len(self.get_available_slots(gha, horizon))
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Private helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    def _free_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
+        for slot in self.registry.get(gha, {}).get(slot_start, []):
+            if slot["truck_id"] == truck_id:
+                slot["truck_id"] = None
+                slot["phase"] = "available"
+                return True
+        return False
+    
+    def _is_docked(self, gha: str, slot_start: int, truck_id: str) -> bool:
+        for slot in self.registry.get(gha, {}).get(slot_start, []):
+            if slot["truck_id"] == truck_id and slot["phase"] == "docked":
+                return True
+        return False

@@ -13,7 +13,7 @@ CONF_DIR = BASE_DIR / "config"
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-def load_config(file_path: str = CONF_DIR / "params.yaml"):
+def load_params(file_path: str = CONF_DIR / "params.yaml"):
     with open(file_path, "r") as file:
-        config = yaml.safe_load(file)
-    return config
+        params = yaml.safe_load(file)
+    return params

@@ -42,9 +42,9 @@ sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
 import config.config
 
 # =============================================================================
-# SETTINGS IMPORT
+# PARAMETERS IMPORT
 # =============================================================================
-params = config.load_config()
+params = config.load_params()
 
 # =============================================================================
 # DPT PLATFORM MODEL

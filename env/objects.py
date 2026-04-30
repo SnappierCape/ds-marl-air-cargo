@@ -219,3 +219,56 @@ class GHATerminal:
             stats["processed"] += 1
             stats["tot_wait"] += queue_time
             stats["tot_serv"] += service_time
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Release window logic
+    # ─────────────────────────────────────────────────────────────────────────
+    def release_window_watcher(
+        self,
+        slot_start: int,
+        dtp: "DTPPlatform",
+        tp3: "TP3Buffer"
+    ):
+        """
+        SimPy process: waits until the priority window expires (minute 10),
+        then checks if the slot should be released to a standby truck.
+        Run one instance per published slot.
+        """
+        yield self.env.timeout(max(
+            0, slot_start + params["booking"]["priority_window"] - self.env.now
+        ))
+        
+        if dtp.release_to_standby(self.gha, slot_start):
+            tp3.signal_standby_opportunity(self.gha, slot_start, self.env.now)
+            
+    # ─────────────────────────────────────────────────────────────────────────
+    # Observational helpers
+    # ─────────────────────────────────────────────────────────────────────────
+    def exp_occupancy(self) -> float:
+        return self.docks_exp / self.n_exp if self.n_exp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
+    
+    def imp_occupancy(self) -> float:
+        return self.docks_imp / self.n_imp if self.n_imp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
+    
+    def exp_queue_norm(self, max_q: int = 20) -> float:    # NOTE: hardcoded
+        return min(len(self.queue_exp) / max_q, 1.0)
+    
+    def imp_queue_norm(self, max_q: int = 20) -> float:    # NOTE: hardcoded
+        return min(len(self.queue_imp) / max_q, 1.0)
+    
+    def upcoming_bookings_norm(
+        self,
+        dtp: "DTPPlatform",
+        flow_type: str,
+        horizon: int,
+        max_b: int = 10    # NOTE: hardcoded
+    ):
+        """Count of confirmed bookings of given flow type within horizon minutes."""
+        now = self.env.now
+        book_count = sum(
+            1 for slot_start, slot in dtp.registry.get(self.gha, {}).items()
+            if slot["truck_id"] is not None
+            and 0 <= slot_start - now <= horizon
+        )
+        return min(book_count / max_b, 1.0)
+    

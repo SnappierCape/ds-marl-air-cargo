@@ -63,19 +63,26 @@ travel_time:
 # DEMAND MODEL
 # =============================================================================
 demand:
-  episode_start_min: 360
-  episode_end_min: 1440
-  base_rate_per_hour: 18
+  arrival_rate: 0.5    # truck per minute
   peak_multiplier: 2.5
   peak_window: [900, 1050]
+  ramp_dur: 60
   flow_split:
     export: 0.60
     import: 0.40
+  multi_stop_probs: [0.10, 0.30, 0.40, 0.20]
   origin_split:
     rfs: 0.25
-    random_nl: 0.35
-    forwarder_hub: 0.30
+    nl: 0.35
+    forwarder: 0.30
     tp3: 0.10
+  origin_travel_time:
+    rfs: [15, 90]
+    nl: [30, 180]
+    forwarder: [20, 100]
+    tp3: [0, 2]
+  parcels_min: 5
+  parcels_max: 50
 
 # =============================================================================
 # MARL HYPERPARAMETERS

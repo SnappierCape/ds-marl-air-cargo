@@ -81,6 +81,14 @@ class InfrastructureLayer:
             slot_window=truck.next_slot_window()
         ))
         truck.timestamps["gate_in"] = sim_time
+    
+    def gate_out(self, sim_time, truck):
+        self.log(SensorEvent(
+            sim_time=sim_time, checkpoint=CheckpointID.GATE_OUT,
+            truck_id=truck.truck_id, flow_type=truck.flow_type,
+            gha_id=None, dock_id=None, n_parcels=None, slot_window=None
+        ))
+        truck.timestamps["gate_out"] = sim_time
 
     def tp3_in(self, sim_time, truck):
         self.log(SensorEvent(

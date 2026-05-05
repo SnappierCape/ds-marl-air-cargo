@@ -46,9 +46,9 @@ service_time:
     params: {low: 10.0, high: 30.0}
 
 # =============================================================================
-# TRAVEL TIME
+# ROAD NETWORK
 # =============================================================================
-travel_time:
+road:
   sigma: 0.20
   segments:
     N0_N1: 2.0
@@ -58,13 +58,21 @@ travel_time:
     N2_N4: 2.0
     N2_N5: 2.5 
     N2_N6: 1.0
+  nodes:
+    N0: "gate"
+    N1: "tp3"
+    N2: "cross"
+    N3: "dnata"
+    N4: "wfs"
+    N5: "swiss"
+    N6: "klm"
 
 # =============================================================================
 # DEMAND MODEL
 # =============================================================================
 demand:
   arrival_rate: 0.5    # truck per minute
-  peak_multiplier: 2.5
+  peak_multiplier: 4
   peak_window: [900, 1050]
   ramp_dur: 60
   flow_split:
@@ -109,4 +117,3 @@ booking:
   slot_duration: 45
   lead_time: 7040
   freeze_time: 60
-  

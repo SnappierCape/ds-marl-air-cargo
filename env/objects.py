@@ -73,7 +73,7 @@ class Truck:
         
         remaining_ghas = {stop["gha"] for stop in self.stops_remaining}    # check remaining ghas
         remaining_slots = {
-            gha: slot_start for gha, slot_start in self.booked_slots.item()    # check remaining slots
+            gha: slot_start for gha, slot_start in self.booked_slots.items()    # check remaining slots
             if gha in remaining_ghas
         }
         return min(remaining_slots.values()) if remaining_slots else None
@@ -158,7 +158,7 @@ class GHATerminal:
         
         # Check slot phase
         slot_start = truck.booked_slots.get(self.gha)
-        dock_is_free = dock_pool < dock_pool.capacity    # NOTE: this works only if dock_pool returns the number of occupied docks
+        dock_is_free = dock_pool.count < dock_pool.capacity
         phase = dtp.get_slot_phase(slot_start, arrival_time, dock_is_free)
         
         # NOTE: I might have to tweak the the logic behind an early arrival, because at the moment a truck waits in the queue forever
@@ -245,10 +245,10 @@ class GHATerminal:
     # Observational helpers
     # ─────────────────────────────────────────────────────────────────────────
     def exp_occupancy(self) -> float:
-        return self.docks_exp / self.n_exp if self.n_exp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
+        return self.docks_exp.count / self.n_exp if self.n_exp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
     
     def imp_occupancy(self) -> float:
-        return self.docks_imp / self.n_imp if self.n_imp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
+        return self.docks_imp.count / self.n_imp if self.n_imp > 0 else 0.0    # NOTE: this works only if docks_exp returns the number of occupied docks
     
     def exp_queue_norm(self, max_q: int = 20) -> float:    # NOTE: hardcoded
         return min(len(self.queue_exp) / max_q, 1.0)
@@ -272,3 +272,93 @@ class GHATerminal:
         )
         return min(book_count / max_b, 1.0)
     
+# =============================================================================
+# TP3 BUFFER
+# =============================================================================
+class TP3Buffer:
+    """
+    Models the TP3 parking lot as a constrained SimPy Resource (140 slots).
+    Trucks that cannot enter join an overflow queue (approach road).
+    TP3 itself is passive — it does not decide who to release.
+    """
+    CAPACITY = params["tp3"]["capacity"]
+    
+    def __init__(self, env: simpy.Environment, infra: "InfrastructureLayer"):
+        self.env = env
+        self.infra = infra
+        self.slots = simpy.Resource(env, capacity=self.CAPACITY)
+        self._parked: List[tuple] = []
+        self.queue_overflow: List[Truck] = []
+        self.standby_opportunities: List[Dict] = []
+        
+    # ── Entry ────────────────────────────────────────────────────────────────
+    def enter(self, truck: Truck):
+        req = self.slots.request()
+        result = yield req | self.env.timeout(0)    # see if we can catch a slot immediately
+        
+        if req in result:
+            self._parked.append((truck, req))
+            truck.status = Truck.STATUS_AT_TP3
+            self.infra.tp3_in(self.env.now, truck)
+        else:
+            self.queue_overflow.append(truck)
+            yield req
+            if truck in self.queue_overflow:
+                self.queue_overflow.remove(truck)
+            self._parked.append((truck, req))
+            truck.status = Truck.STATUS_AT_TP3
+            self.infra.tp3_in(self.env.now, truck)
+    
+    # ── Release ──────────────────────────────────────────────────────────────
+    def release(self, truck_id: str) -> Optional[Truck]:
+        """Release a specific truck."""
+        for i, (truck, req) in enumerate(self._parked):
+            if truck.truck_id == truck_id:
+                self._parked.pop(i)
+                self.slots.release(req)    # simpy release method
+                self.infra.tp3_out(self.env.now, truck)
+                return truck
+        return None
+    
+    def release_next(self, gha: str) -> Optional[Truck]:
+        """Release whatever truck is next for a gha."""
+        for i, (truck, req) in enumerate(self._parked):
+            if gha in truck.booked_slots:
+                self._parked.pop(i)
+                self.slots.release(req)
+                self.infra.tp3_out(self.env.now, truck)
+                return truck
+        return None
+
+    # ── Standby signals ──────────────────────────────────────────────────────
+    def signal_standby_opportunity(self, gha: str, slot_start: int, signal_time: int):
+        """Called by GHATerminal when a slot enters release window with no booked truck present."""
+        self.standby_opportunities.append({
+            "gha": gha,
+            "slot_start": slot_start,
+            "signal_time": signal_time,
+            "consumed": False
+        })
+        
+    def get_pending_signals(self) -> List[Dict]:
+        """Returns unconsumed standby signals."""
+        return [signal for signal in self.standby_opportunities if not signal["consumed"]]
+    
+    # ── Observational helpers ────────────────────────────────────────────────
+    def occupancy_ratio(self) -> float:
+        return self.slots.count / self.CAPACITY
+    
+    def n_parked(self) -> int:
+        return self.slots.count
+    
+    def n_overflow(self) -> int:
+        return len(self.queue_overflow)
+    
+    def parked_by_flow_type(self, flow_type: str) -> int:
+        return sum(
+            1 for truck, _ in self._parked
+            if truck.flow_type == flow_type
+        )
+        
+    def get_parked_trucks(self) -> List[Truck]:
+        return [truck for truck, _ in self._parked]

@@ -2,8 +2,13 @@
 # ROAD NETWORK MODULE
 # =============================================================================
 # DESCRIPTION:
-#     Calculates stochastic travel times between nodes in the Schiphol cargo
-#     area based on the params file.
+#     This module creates travel times between each node of the Schiphol
+#     landside area, and applies a stochastic noise to those values.
+#     It is used by other modules to sample a randomized travel time for a
+#     specific segment.
+#
+# NOISE DISTRIBUTION:
+#     The chosen distribution for the noise is a lognormal distribution.
 # =============================================================================
 import sys
 import os
@@ -23,22 +28,23 @@ params = config.load_params()
 # ROAD MODEL
 # =============================================================================
 class RoadNetwork:
-    """Generates stochastic travel times between nodes."""
-    def __init__(self, cfg: Dict):
+    def __init__(self, cfg: Dict = params):
         self.cfg = cfg["road"]
         self.sigma = self.cfg["sigma"]
         self.segments = self.cfg["segments"]
         self.ghas = self.cfg["nodes"]
+        self.lbound = self.cfg["lbound"]
+        self.ubound = self.cfg["ubound"]
 
     def _apply_noise(self, base_time: float) -> float:
-        """Applies lognormal noise to a base travel time to simulate traffic variance."""
+        """Applies lognormal noise."""
         if base_time <= 0:
-            return 0.0
+            raise ValueError(f'Input base_time: {base_time}. Please input positive base_time.')
         
         mu = np.log(base_time) - (self.sigma**2) / 2
         sampled_time = np.random.lognormal(mean=mu, sigma=self.sigma)
         
-        return float(np.clip(sampled_time, base_time * 0.5, base_time * 3.0))    # Hardcoded.
+        return float(np.clip(sampled_time, base_time * self.lbound, base_time * self.ubound))
 
     def gate_to_gha(self, gha: str) -> float:
         target_node = self.ghas.get(gha)

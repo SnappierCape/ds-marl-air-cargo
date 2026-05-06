@@ -3,11 +3,11 @@
 # =============================================================================
 # DESCRIPTION:
 #     This module contains the utilities to extract a sample service time from
-#     the statistical distribution present in /config/sim_params.yaml.
+#     the statistical distribution present in the params file.
 #     This allows to decouple the distribution from the sampler.
 # =============================================================================
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 
 # =============================================================================
 # SERVICE TIME MODEL
@@ -69,7 +69,7 @@ class ServiceTimeModel:
             lo, hi = bounds[flow_type]
             return float(np.clip(raw, lo, hi))
 
-    def mean(self, flow_type: str) -> float:
+    def mean(self, flow_type: str) -> Optional[float]:
         """Analytical mean, used to initialize reward normalization."""
         spec = self.cfg[flow_type]
         p = spec["params"]

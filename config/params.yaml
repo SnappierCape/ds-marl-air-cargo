@@ -115,5 +115,5 @@ marl:
 booking:
   priority_window: 10
   slot_duration: 45
-  lead_time: 7040
-  freeze_time: 60
+  lead_time: 4320
+  freeze_time: 90

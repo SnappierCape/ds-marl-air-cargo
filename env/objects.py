@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 # Setting base path for local imports
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0: -2]))
+
 import config.config
 from env.infrastructure import InfrastructureLayer
 from env.dtp_platform import DTPPlatform
@@ -259,10 +260,9 @@ class GHATerminal:
     def upcoming_bookings_norm(
         self,
         dtp: "DTPPlatform",
-        flow_type: str,
         horizon: int,
         max_b: int = 10    # NOTE: hardcoded
-    ):
+    ) -> float:
         """Count of confirmed bookings of given flow type within horizon minutes."""
         now = self.env.now
         book_count = sum(

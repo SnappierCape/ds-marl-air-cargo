@@ -163,19 +163,19 @@ class DTPPlatform:
         self,
         truck_id: str,
         from_gha: str,
-        from_slot_start: int,
+        from_start: int,
         to_gha: str,
-        to_slot_start: int
+        to_start: int
     ) -> bool:
         if from_gha not in self.registry:
             raise ValueError(f'GHA "{from_gha}" is not known, please insert a known GHA.')
         if to_gha not in self.registry:
             raise ValueError(f'GHA "{to_gha}" is not known, please insert a known GHA.')
         
-        if self._is_docked(from_gha, from_slot_start, truck_id):
+        if self._is_docked(from_gha, from_start, truck_id):
             return False
         
-        new_slots = self.registry[to_gha].get[to_slot_start, []]
+        new_slots = self.registry[to_gha].get[to_start, []]
         has_space = any(
             slot["truck_id"] is None and slot["phase"] == "available"
             for slot in new_slots
@@ -183,10 +183,10 @@ class DTPPlatform:
         if not has_space:
             return False
         
-        if not self._free_slot(from_gha, from_slot_start, truck_id):
+        if not self._free_slot(from_gha, from_start, truck_id):
             return False
         
-        return self.orch_book_slot(to_gha, to_slot_start, truck_id)
+        return self.orch_book_slot(to_gha, to_start, truck_id)
     
     # ─────────────────────────────────────────────────────────────────────────
     # Arrival logic

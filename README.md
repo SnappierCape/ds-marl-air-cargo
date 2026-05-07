@@ -137,6 +137,5 @@ The project is based on the following rules / assumptions:
 
 | Method    | Called by | Args      | Returns    |
 |-----------|-----------|-----------|------------|
-| _validate | ─         | cfg       | None       |
 | sample    | objects   | flow_type | float      |
-| mean      | ─         | flow_type | float|None |
+| mean      | ─         | flow_type | float      |

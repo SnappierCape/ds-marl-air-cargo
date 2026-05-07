@@ -2,79 +2,45 @@
 # SERVICE TIME SAMPLER
 # =============================================================================
 # DESCRIPTION:
-#     This module contains the utilities to extract a sample service time from
-#     the statistical distribution present in the params file.
-#     This allows to decouple the distribution from the sampler.
+#     This module contains the utilities to extract a sample dock service time
+#     following a lognormal distribution.
 # =============================================================================
+import sys
+import os
 import numpy as np
-from typing import Dict, Optional
+from typing import Dict
+
+# Setting base path for local imports
+sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
+import config.config
+
+# =============================================================================
+# PARAMETERS IMPORT
+# =============================================================================
+params = config.load_params()
 
 # =============================================================================
 # SERVICE TIME MODEL
 # =============================================================================
 class ServiceTimeModel:
-    """
-    Config-driven service time sampler.
-
-    Supported families:
-      "uniform"   → params: {low, high}
-      "lognormal" → params: {mu, sigma}
-      "gamma"     → params: {shape, scale}
-      "empirical" → params: {data_path}
-
-    Usage:
-      model = ServiceTimeModel(cfg["service_time"])
-      t = model.sample("export")    # → float, minutes
-      t = model.sample("import")    # → float, minutes
-    """
-    def __init__(self, cfg: Dict):
-        self.cfg = cfg
-        self._validate(cfg)
-
-    def _validate(self, cfg):
-        for flow in ["export", "import"]:
-            assert flow in cfg, f"Missing service time config for flow: {flow}"
-            assert "family" in cfg[flow] and "params" in cfg[flow]
-
+    def __init__(self, cfg: Dict = params):
+        self.exp = cfg["service_time"]["export"]
+        self.imp = cfg["service_time"]["import"]
+    
     def sample(self, flow_type: str) -> float:
-        """
-        Draw one service time sample for the given flow type.
+        """Samples one service time from the distribution."""
+        if flow_type not in ("export", "import"):
+            raise ValueError(f'Flow type {flow_type} is not valid.')
         
-        Parameters:
-        -----------
-        flow_type : str
-            Either "Import" or "Export".
+        cfg = self.exp if flow_type == "export" else self.imp
+        raw = np.random.lognormal(mean=cfg["mu"], sigma=cfg["sigma"])
+        lo, hi = cfg["bounds"]
+        return float(np.clip(raw, lo, hi))
+    
+    def mean(self, flow_type: str) -> float:
+        """Analytical mean of the lognormal distribution."""
+        if flow_type not in ("export", "import"):
+            raise ValueError(f'Flow type {flow_type} is not valid.')
         
-        Returns:
-        --------
-        : float
-            Simulation time sample in minutes.
-        """
-        spec = self.cfg[flow_type]
-        family = spec["family"]
-        p = spec["params"]
-
-        if family == "uniform":
-            return np.random.uniform(p["low"], p["high"])
-
-        elif family == "lognormal":
-            raw = np.random.lognormal(mean=p["mu"], sigma=p["sigma"])
-            bounds = {"export": (15, 60), "import": (10, 30)}    # Hardcoded
-            lo, hi = bounds[flow_type]
-            return float(np.clip(raw, lo, hi))
-
-        elif family == "gamma":
-            raw = np.random.gamma(shape=p["shape"], scale=p["scale"])
-            bounds = {"export": (15, 60), "import": (10, 30)}
-            lo, hi = bounds[flow_type]
-            return float(np.clip(raw, lo, hi))
-
-    def mean(self, flow_type: str) -> Optional[float]:
-        """Analytical mean, used to initialize reward normalization."""
-        spec = self.cfg[flow_type]
-        p = spec["params"]
-        if spec["family"] == "uniform":
-            return (p["low"] + p["high"]) / 2
-        elif spec["family"] == "lognormal":
-            return np.exp(p["mu"] + p["sigma"]**2 / 2)
-        return None
+        cfg = self.exp if flow_type == "export" else self.imp
+        return np.exp(cfg["mu"] + cfg["sigma"] ** 2 / 2)

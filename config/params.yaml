@@ -19,11 +19,11 @@ gha:
     total: 48
     import: 24
     export: 24
-  swiss:
+  wfs:
     total: 30
     import: 15
     export: 15
-  wfs:
+  swiss:
     total: 28
     import: 14
     export: 14
@@ -54,26 +54,33 @@ road:
   ubound: 3
   segments:
     N0_N1: 2.0
-    N0_N2: 1.0
-    N1_N2: 1.0
-    N2_N3: 1.5
-    N2_N4: 2.0
-    N2_N5: 2.5 
-    N2_N6: 1.0
+    N0_N2: 2.0
+    N0_N3: 1.0
+    N0_N4: 3.0
+    N0_N5: 5.0
+    N1_N2: 0.5
+    N1_N3: 2.0
+    N1_N4: 4.0
+    N1_N5: 6.0
+    N2_N3: 2.0
+    N2_N4: 4.0
+    N2_N5: 6.0
+    N3_N4: 2.0
+    N3_N5: 4.0
+    N4_N5: 2.0
   nodes:
-    N0: "gate"
-    N1: "tp3"
-    N2: "cross"
-    N3: "dnata"
-    N4: "wfs"
-    N5: "swiss"
-    N6: "klm"
+    gate: "N0"
+    tp3: "N1"
+    dnata: "N2"
+    klm: "N3"
+    wfs: "N4"
+    swiss: "N5"
 
 # =============================================================================
 # DEMAND MODEL
 # =============================================================================
 demand:
-  arrival_rate: 0.5    # truck per minute
+  arrival_rate: 0.5
   peak_multiplier: 4
   peak_window: [900, 1050]
   ramp_dur: 60

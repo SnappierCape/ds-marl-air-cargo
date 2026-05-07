@@ -29,39 +29,30 @@ params = config.load_params()
 # =============================================================================
 class RoadNetwork:
     def __init__(self, cfg: Dict = params):
-        self.cfg = cfg["road"]
-        self.sigma = self.cfg["sigma"]
-        self.segments = self.cfg["segments"]
-        self.ghas = self.cfg["nodes"]
-        self.lbound = self.cfg["lbound"]
-        self.ubound = self.cfg["ubound"]
+        self.sigma = cfg["sigma"]
+        self.lbound = cfg["lbound"]
+        self.ubound = cfg["ubound"]
+        self.segments = cfg["segments"]
+        self.nodes = cfg["nodes"]
 
     def _apply_noise(self, base_time: float) -> float:
         """Applies lognormal noise."""
         if base_time <= 0:
             raise ValueError(f'Input base_time: {base_time}. Please input positive base_time.')
         
-        mu = np.log(base_time) - (self.sigma**2) / 2
+        mu = np.log(base_time) - (self.sigma**2) / 2    # NOTE: i need to understand this transformation
         sampled_time = np.random.lognormal(mean=mu, sigma=self.sigma)
         
         return float(np.clip(sampled_time, base_time * self.lbound, base_time * self.ubound))
-
-    def gate_to_gha(self, gha: str) -> float:
-        target_node = self.ghas.get(gha)
-        if not target_node:
-            raise ValueError(f"Unknown GHA ID: {gha}")
-            
-        base = self.segments["N0_N2"] + self.segments[f"N2_{target_node}"]
-        return self._apply_noise(base)
-
-    def gate_to_tp3(self) -> float:
-        base = self.segments["N0_N1"]
-        return self._apply_noise(base)
-
-    def tp3_to_gha(self, gha: str) -> float:
-        target_node = self.ghas.get(gha)
-        if not target_node:
-            raise ValueError(f"Unknown GHA ID: {gha}")
-            
-        base = self.segments["N1_N2"] + self.segments[f"N2_{target_node}"]
-        return self._apply_noise(base)
+    
+    def time_from_to(self, start: str, end: str) -> float:
+        """Calculates base travel time between 2 nodes."""
+        if start not in self.nodes.keys() or end not in self.nodes.keys():
+            raise ValueError(f'Invalid input nodes: {start}, {end}. Please input valid nodes.')
+        
+        start_node = self.nodes[start]
+        end_node = self.nodes[end]
+        
+        segment = f'{min(start_node, end_node)}_{max(start_node, end_node)}'
+        
+        return self._apply_noise(self.segments[segment])

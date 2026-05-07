@@ -50,26 +50,16 @@ params = config.load_params()
 # DPT PLATFORM MODEL
 # =============================================================================
 class DTPPlatform:
-    """
-    Truck Slot Booking logic engine.
-    Pure Python logic; relies on the SimPy environment solely to check 'env.now'.
-    """
-    def __init__(
-        self,
-        env: simpy.Environment,
-        slot_duration: int = params["booking"]["slot_duration"],
-        priority_window: int = params["booking"]["priority_window"],
-        freeze_time: int = params["booking"]["freeze_time"],
-        lead_time: int = params["booking"]["lead_time"]
-    ):
+    def __init__(self, env: simpy.Environment, params: Dict = params):
+        cfg = params["dtp_rules"]
         self.env = env
-        self.slot_duration = slot_duration
-        self.priority_window = priority_window
-        self.freeze_time = freeze_time
-        self.lead_time = lead_time
+        self.slot_duration = cfg["slot_duration"]
+        self.priority_window = cfg["priority_window"]
+        self.freeze_time = cfg["freeze_time"]
+        self.lead_time = cfg["lead_time"]
         
         self.registry: Dict[str, Dict[int, List[Dict]]] = {
-            gha: {} for gha in list(params["gha_docks"])
+            gha: {} for gha in list(params["ghas"].keys())
         }
         
         self.no_shows: Dict[str, int] = {}
@@ -90,7 +80,7 @@ class DTPPlatform:
         if slot_start - now < self.freeze_time:
             return False
         
-        tot_docks = params["gha"][gha]["total"]
+        tot_docks = params["ghas"][gha]["total"]
         current_docks = len(self.registry[gha].get(slot_start, []))
         if current_docks >= tot_docks:
             return False

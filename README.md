@@ -139,3 +139,14 @@ The project is based on the following rules / assumptions:
 |-----------|-----------|-----------|------------|
 | sample    | objects   | flow_type | float      |
 | mean      | ─         | flow_type | float      |
+
+---
+
+## Glossary
+
+### Slot
+
+A `slot` is just a dictionary with 2 keys: `truck_id` and `phase`. Multiple slots can fit into a list of dictionaries if they all start at the same time. When it is firstly published it does not contain the truck id. The slot is a different concept from the booking.
+```python
+slot = {"truck_id": None, "phase": "available"}
+```

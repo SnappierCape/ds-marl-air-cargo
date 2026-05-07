@@ -2,41 +2,53 @@
 # INFRASTRUCTURE MODULE
 # =============================================================================
 # DESCRIPTION:
-#     Infrastructure module that contains all the classes for the checkpoint
-#     tracking at the Airport.
+#     Simulates the ANPR cameras and dock sensors in the cargo area.
+#     Every time a truck passes a physical checkpoint, a SensorEvent is written
+#     to two places:
+#       - event_log: full episode history, read by KPITracker at episode end
+#       - step_buffer: events since last MARL step, flushed by schiphol_env.py
+#
+#     This module has no dependencies on SimPy, params, or other custom modules.
+#     It only knows about trucks via duck typing (it reads truck attributes).
 # =============================================================================
 from dataclasses import dataclass
 from typing import List, Optional
 from enum import Enum
 
-# =============================================================================
-# CHECKPOINTS
-# =============================================================================
-class CheckpointID(Enum):
-    GATE_IN        = "gate_in"
-    GATE_OUT       = "gate_out"
-    TP3_IN         = "tp3_in"
-    TP3_OUT        = "tp3_out"
-    GHA_IN_DNATA   = "gha_in_dnata"
-    GHA_IN_KLM     = "gha_in_klm"
-    GHA_IN_SWISS   = "gha_in_swissport"
-    GHA_IN_MENZ    = "gha_in_menzies_wfs"
-    GHA_OUT_DNATA  = "gha_out_dnata"
-    GHA_OUT_KLM    = "gha_out_klm"
-    GHA_OUT_SWISS  = "gha_out_swissport"
-    GHA_OUT_MENZ   = "gha_out_menzies_wfs"
-    DOCK_START     = "dock_start"
-    DOCK_END       = "dock_end"
+from __future__ import annotations
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from env.objects import Truck
 
 # =============================================================================
-# SENSORS
+# CHECKPOINT IDENTIFIERS
+# =============================================================================
+class CheckpointID(Enum):
+    GATE_IN = "gate_in"
+    GATE_OUT = "gate_out"
+    TP3_IN = "tp3_in"
+    TP3_OUT = "tp3_out"
+    GHA_IN = "gha_in"
+    DOCK_START = "dock_start"
+    DOCK_END = "dock_end"
+
+# =============================================================================
+# SENSOR EVENT
 # =============================================================================
 @dataclass
 class SensorEvent:
     """
-    Atomic event emitted by any checkpoint sensor.
-    This is the unit of data that KPITracker and agents consume.
-    In the real system, these are rows in the eLink/ANPR database.
+    One row in the event log. Mirrors what a real ANPR or dock sensor writes.
+
+    Fields:
+        sim_time    : simulation time in minutes when the event fired
+        checkpoint  : which sensor fired (gate, tp3, gha, dock)
+        truck_id    : license plate
+        flow_type   : "export" or "import"
+        gha_id      : which GHA (None for gate and TP3 events)
+        dock_id     : which dock door (None for non-dock events)
+        n_parcels   : parcel count at this stop (None at dock_end, already logged at dock_start)
+        slot_window : booked slot start time (for on-time/late classification)
     """
     sim_time: float
     checkpoint: CheckpointID
@@ -48,85 +60,104 @@ class SensorEvent:
     slot_window: Optional[float]
 
 # =============================================================================
-# INFRASTRUCTURE
+# INFRASTRUCTURE LAYER
 # =============================================================================
 class InfrastructureLayer:
-    """
-    Manages all sensor checkpoints in the simulation.
-    Called by SimPy processes when trucks pass checkpoints.
-    Writes SensorEvents to the event buffer consumed by:
-      - KPITracker  (for WPR, NTTP, peak resilience)
-      - Agent obs   (for recent_events in observation vectors)
-    """
     def __init__(self):
-        self.event_log: List[SensorEvent] = []
-        self.step_buffer: List[SensorEvent] = []
+        self.event_log: List[SensorEvent] = []    # full episode log
+        self.step_buffer: List[SensorEvent] = []    # last stel log
 
-    def log(self, event: SensorEvent):
+    # ─────────────────────────────────────────────────────────────────────────
+    # Internal logger
+    # ─────────────────────────────────────────────────────────────────────────
+    def _log(self, event: SensorEvent) -> None:
+        """Writes one event to both the full log and the current step buffer."""
         self.event_log.append(event)
         self.step_buffer.append(event)
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Buffer management — called by schiphol_env.py
+    # ─────────────────────────────────────────────────────────────────────────
     def flush_step_buffer(self) -> List[SensorEvent]:
-        """Called by PettingZoo wrapper at the start of each step."""
         events = self.step_buffer.copy()
         self.step_buffer.clear()
         return events
 
-    def gate_in(self, sim_time, truck):
-        self.log(SensorEvent(
+    def get_all_events(self) -> List[SensorEvent]:
+        return self.event_log
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Gate checkpoints — called by demand.py
+    # ─────────────────────────────────────────────────────────────────────────
+    def gate_in(self, sim_time: float, truck: Truck) -> None:
+        self._log(SensorEvent(
             sim_time=sim_time, checkpoint=CheckpointID.GATE_IN,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
             gha_id=None, dock_id=None,
             n_parcels=truck.total_parcels(),
-            slot_window=truck.next_slot_window()
+            slot_window=truck.next_slot()
         ))
         truck.timestamps["gate_in"] = sim_time
-    
-    def gate_out(self, sim_time, truck):
-        self.log(SensorEvent(
+
+    def gate_out(self, sim_time: float, truck: Truck) -> None:
+        self._log(SensorEvent(
             sim_time=sim_time, checkpoint=CheckpointID.GATE_OUT,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
-            gha_id=None, dock_id=None, n_parcels=None, slot_window=None
+            gha_id=None, dock_id=None,
+            n_parcels=None, slot_window=None
         ))
         truck.timestamps["gate_out"] = sim_time
 
-    def tp3_in(self, sim_time, truck):
-        self.log(SensorEvent(
+    # ─────────────────────────────────────────────────────────────────────────
+    # TP3 checkpoints — called by objects.py (TP3Buffer)
+    # ─────────────────────────────────────────────────────────────────────────
+    def tp3_in(self, sim_time: float, truck: Truck) -> None:
+        self._log(SensorEvent(
             sim_time=sim_time, checkpoint=CheckpointID.TP3_IN,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
-            gha_id=None, dock_id=None, n_parcels=None, slot_window=None
+            gha_id=None, dock_id=None,
+            n_parcels=None, slot_window=None
         ))
         truck.timestamps["tp3_in"] = sim_time
 
-    def tp3_out(self, sim_time, truck):
-        self.log(SensorEvent(sim_time=sim_time, checkpoint=CheckpointID.TP3_OUT,
+    def tp3_out(self, sim_time: float, truck: Truck) -> None:
+        self._log(SensorEvent(
+            sim_time=sim_time, checkpoint=CheckpointID.TP3_OUT,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
-            gha_id=None, dock_id=None, n_parcels=None, slot_window=None))
+            gha_id=None, dock_id=None,
+            n_parcels=None, slot_window=None
+        ))
         truck.timestamps["tp3_out"] = sim_time
 
-    def gha_in(self, sim_time, truck, gha_id):
-        cp = CheckpointID[f"GHA_IN_{gha_id.upper()[:5]}"]
-        self.log(SensorEvent(sim_time=sim_time, checkpoint=cp,
+    # ─────────────────────────────────────────────────────────────────────────
+    # GHA checkpoints — called by objects.py (GHATerminal)
+    # ─────────────────────────────────────────────────────────────────────────
+    def gha_in(self, sim_time: float, truck: Truck, gha_id: str) -> None:
+        self._log(SensorEvent(
+            sim_time=sim_time, checkpoint=CheckpointID.GHA_IN,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
             gha_id=gha_id, dock_id=None,
             n_parcels=truck.parcels_for(gha_id),
-            slot_window=truck.booked_slots.get(gha_id)))
+            slot_window=truck.booked_slots.get(gha_id)
+        ))
         truck.timestamps[f"gha_in_{gha_id}"] = sim_time
 
-    def dock_start(self, sim_time, truck, gha_id, dock_id):
-        self.log(SensorEvent(sim_time=sim_time, checkpoint=CheckpointID.DOCK_START,
+    def dock_start(self, sim_time: float, truck: Truck, gha_id: str, dock_id: int) -> None:
+        self._log(SensorEvent(
+            sim_time=sim_time, checkpoint=CheckpointID.DOCK_START,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
             gha_id=gha_id, dock_id=dock_id,
             n_parcels=truck.parcels_for(gha_id),
-            slot_window=truck.booked_slots.get(gha_id)))
+            slot_window=truck.booked_slots.get(gha_id)
+        ))
         truck.timestamps[f"dock_start_{gha_id}"] = sim_time
 
-    def dock_end(self, sim_time, truck, gha_id, dock_id):
-        self.log(SensorEvent(sim_time=sim_time, checkpoint=CheckpointID.DOCK_END,
+    def dock_end(self, sim_time: float, truck: Truck, gha_id: str, dock_id: int) -> None:
+        self._log(SensorEvent(
+            sim_time=sim_time, checkpoint=CheckpointID.DOCK_END,
             truck_id=truck.truck_id, flow_type=truck.flow_type,
-            gha_id=gha_id, dock_id=dock_id, n_parcels=None,
-            slot_window=truck.booked_slots.get(gha_id)))
+            gha_id=gha_id, dock_id=dock_id,
+            n_parcels=None,
+            slot_window=truck.booked_slots.get(gha_id)
+        ))
         truck.timestamps[f"dock_end_{gha_id}"] = sim_time
-    
-    def get_all_events(self) -> List[SensorEvent]:
-        return self.event_log

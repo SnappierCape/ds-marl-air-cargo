@@ -128,12 +128,10 @@ The project is based on the following rules / assumptions:
 
 ### Module: road
 
-| Method           | Called by | Args      | Returns |
-|------------------|-----------|-----------|---------|
-| _apply_noise     | ─         | base_time | float   |
-| gate_to_gha      | demand    | gha       | float   |
-| gate_to_tp3      | demand    | —         | float   |
-| tp3_to_gha       | demand    | gha       | float   |
+| Method           | Called by | Args       | Returns |
+|------------------|-----------|------------|---------|
+| _apply_noise     | ─         | base_time  | float   |
+| time_from_to     | demand    | start, end | float   |
 
 ### Module: service_time
 

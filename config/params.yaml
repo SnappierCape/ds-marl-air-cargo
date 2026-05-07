@@ -39,11 +39,13 @@ tp3:
 # =============================================================================
 service_time:
   export:
-    family: "uniform"
-    params: {low: 15.0, high: 60.0}
+    mu: 3.5
+    sigma: 0.4
+    bounds: [11, 180]
   import:
-    family: "uniform"
-    params: {low: 10.0, high: 30.0}
+    mu: 2.8
+    sigma: 0.3
+    bounds: [8, 120]
 
 # =============================================================================
 # ROAD NETWORK

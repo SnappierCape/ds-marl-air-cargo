@@ -102,6 +102,7 @@ demand:
     tp3: [0, 2]
   parcels_min: 5
   parcels_max: 50
+  max_tp3_wait: 360
 
 # =============================================================================
 # MARL HYPERPARAMETERS

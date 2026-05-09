@@ -1,0 +1,189 @@
+# =============================================================================
+# KPI TRACKER MODULE
+# =============================================================================
+# DESCRIPTION:
+#     Computes KPIs from the stream of SensorEvents produced by
+#     InfrastructureLayer. Operates incrementally: ingests events step
+#     by step rather than recomputing from scratch each time.
+#
+# TRACKED KPIs:
+#     WPR      — Wait-to-Process Ratio: total wait / total service time
+#                Perfect system = 0. Measures queue inefficiency.
+#     NTTP     — Normalized Turnaround Time per Parcel: (gate_out - gate_in)
+#                / n_parcels. Measures end-to-end delivery speed.
+#     Peak WPR — WPR computed only during the peak window.
+#
+# HOW IT WORKS:
+#     ingest(events) is called every MARL step with the events from that step.
+#     It builds per-truck state dicts from GATE_IN to GATE_OUT, computing
+#     wait and service times from the dock timestamps.
+#     Reward helpers are called by schiphol_env.py to compute step rewards.
+#     summary() is called at episode end for W&B logging.
+# =============================================================================
+import sys
+import os
+from typing import Dict, List, Optional
+
+sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
+import config.config
+from env.infrastructure import CheckpointID, SensorEvent
+
+params = config.load_params()
+
+# =============================================================================
+# MAIN CLASS
+# =============================================================================
+class KPITracker:
+    def __init__(self):
+        p = params["demand"]
+        self._peak_start = p["peak_window"][0]
+        self._peak_end = p["peak_window"][1]
+        self._ghas = params["ghas"].keys()
+        self.w = params["marl"]["reward_weights"]
+
+        # Per-truck working state — built incrementally as events arrive
+        # {truck_id: {"gate_in": t, "n_parcels": n, "gha_in": {gha: t}, "dock_start": {gha: t}, "dock_end": {gha: t}}}
+        self._truck: Dict[str, Dict] = {}
+
+        # Episode-level accumulators
+        self._total_wait: float = 0.0
+        self._total_service: float = 0.0
+        self._peak_wait: float = 0.0
+        self._peak_service: float = 0.0
+        self._nttp_sum: float = 0.0
+        self._n_completed: int = 0
+
+        # Per-GHA dock utilization snapshots — appended each step
+        # {gha: {"export": [ratio, ...], "import": [ratio, ...]}}
+        self._util: Dict[str, Dict[str, List[float]]] = {
+            gha: {"export": [], "import": []}
+            for gha in self._ghas
+        }
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # EVENT INGESTION — called every MARL step by schiphol_env.py
+    # ─────────────────────────────────────────────────────────────────────────
+    def ingest(self, events: List[SensorEvent]) -> None:
+        """Process a batch of events from the current step. Updates per-truck state and running accumulators."""
+        for e in events:
+            tid = e.truck_id
+
+            if e.checkpoint == CheckpointID.GATE_IN:
+                # Start tracking this truck
+                self._truck[tid] = {
+                    "gate_in": e.sim_time,
+                    "n_parcels": e.n_parcels or 0,
+                    "gha_in": {},
+                    "dock_start": {},
+                    "dock_end": {},
+                }
+
+            elif e.checkpoint == CheckpointID.GHA_IN:
+                state = self._truck.get(tid)
+                if state and e.gha_id:
+                    state["gha_in"][e.gha_id] = e.sim_time
+
+            elif e.checkpoint == CheckpointID.DOCK_START:
+                state = self._truck.get(tid)
+                if state and e.gha_id:
+                    state["dock_start"][e.gha_id] = e.sim_time
+                    # Wait time = from GHA entrance to dock start
+                    gha_in = state["gha_in"].get(e.gha_id, e.sim_time)
+                    wait = e.sim_time - gha_in
+                    self._total_wait += wait
+                    if self._peak_start <= e.sim_time <= self._peak_end:
+                        self._peak_wait += wait
+
+            elif e.checkpoint == CheckpointID.DOCK_END:
+                state = self._truck.get(tid)
+                if state and e.gha_id:
+                    state["dock_end"][e.gha_id] = e.sim_time
+                    # Service time = dock_end - dock_start
+                    dock_start = state["dock_start"].get(e.gha_id, e.sim_time)
+                    service = e.sim_time - dock_start
+                    self._total_service += service
+                    if self._peak_start <= e.sim_time <= self._peak_end:
+                        self._peak_service += service
+
+            elif e.checkpoint == CheckpointID.GATE_OUT:
+                state = self._truck.get(tid)
+                if state and state["n_parcels"] > 0:
+                    turnaround = e.sim_time - state["gate_in"]
+                    self._nttp_sum  += turnaround / state["n_parcels"]
+                    self._n_completed += 1
+                # Remove from working state — truck is done
+                self._truck.pop(tid, None)
+
+    def snapshot_utilization(self, terminals: Dict) -> None:    # NOTE: terminal should be a GHATerminal??
+        """
+        Record current dock occupancy for all GHAs.
+        Called once per MARL step by schiphol_env.py.
+        Used to compute utilization std for load-balancing reward.
+        """
+        for gha, terminal in terminals.items():
+            self._util[gha]["export"].append(terminal.exp_occupancy())
+            self._util[gha]["import"].append(terminal.imp_occupancy())
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # KPI PROPERTIES — called by schiphol_env.py for rewards and logging
+    # ─────────────────────────────────────────────────────────────────────────
+    def wpr(self) -> float:
+        return 0.0 if self._total_service == 0 else self._total_wait / self._total_service
+
+    def peak_wpr(self) -> float:
+        return 0.0 if self._peak_service == 0 else self._peak_wait / self._peak_service
+
+    def nttp(self) -> float:
+        return 0.0 if self._n_completed == 0 else self._nttp_sum / self._n_completed
+
+    def utilization_std(self) -> float:
+        import numpy as np
+        means = []
+        for _, flows in self._util.items():
+            all_snaps = flows["export"] + flows["import"]
+            if all_snaps:
+                means.append(sum(all_snaps) / len(all_snaps))
+        return float(np.std(means)) if len(means) > 1 else 0.0
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # REWARD HELPERS — called by schiphol_env.py every step
+    # ─────────────────────────────────────────────────────────────────────────
+    def global_reward(self) -> float:
+        w = self.w
+        return -(w["wpr_global"] * self.wpr() + w["util_std"] * self.utilization_std())
+
+    def transporter_reward(self, dtp) -> float:
+        w = self.w
+        return -(
+            w["wait_per_min"] * self._total_wait +
+            w["no_show"] * sum(dtp.no_shows.values()) +
+            w["missed_slot"] * sum(dtp.late_arrivals.values())
+        )
+
+    def gha_reward(self, gha: str, terminal) -> float:    # NOTE: terminal should be a GHATerminal??
+        w = self.w
+        util = (terminal.exp_occupancy() + terminal.imp_occupancy()) / 2
+        q = terminal.exp_queue_norm() + terminal.imp_queue_norm()
+        proc = (
+            terminal.stats["export"]["processed"] +
+            terminal.stats["import"]["processed"]
+        )
+        
+        return (
+            w["dock_util"] * util +
+            w["parcel_on_time"] * proc -
+            w["queue_per_step"] * q
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # EPISODE SUMMARY
+    # ─────────────────────────────────────────────────────────────────────────
+    def summary(self) -> Dict:
+        return {
+            "wpr": self.wpr(),
+            "peak_wpr": self.peak_wpr(),
+            "nttp": self.nttp(),
+            "util_std": self.utilization_std(),
+            "n_completed": self._n_completed,
+            "global_reward": self.global_reward(),
+        }

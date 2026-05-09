@@ -2,45 +2,23 @@
 # DEMAND GENERATOR MODULE
 # =============================================================================
 # DESCRIPTION:
-#     Generates truck arrivals and orchestrates each truck's full journey
-#     through the Schiphol cargo area.
+#     Two responsibilities:
+#       1. run(): infinite arrival loop, spawns one SimPy process per truck
+#       2. _truck_journey(): drives one truck through its complete journey
 #
-# TWO RESPONSIBILITIES:
-#     1. Arrival loop (run):
-#        A single SimPy process that runs for the whole episode. Samples
-#        inter-arrival times from a time-varying Poisson process and spawns
-#        one independent SimPy process per truck via env.process().
-#        Trucks never block each other — each lives in its own process.
-#
-#     2. Truck journey (_truck_journey):
-#        One SimPy generator per truck. Moves the truck through every
-#        physical stage: origin → gate → TP3 or GHA → service → exit.
-#        Each yield consumes simulated time (travel or service).
-#
-# BASELINE BOOKING POLICY:
-#     _book_slots() implements the FCFS Transporter heuristic — earliest
-#     available slot per GHA stop. This will be replaced by the learned
-#     MARL Transporter policy. Everything else in this module stays fixed.
-#
-# SLOT SEQUENCING:
-#     Multi-stop trucks visit GHAs in chronological slot order.
-#     _book_slots() enforces non-overlapping windows so a truck is never
-#     booked at two GHAs at the same time.
-#
-# DEPENDENCIES:
-#     objects.py           → Truck, GHATerminal, TP3Buffer
-#     dtp_platform.py      → DTPPlatform (slot booking and phase logic)
-#     infrastructure.py    → InfrastructureLayer (ANPR events)
-#     road.py              → RoadNetwork (stochastic travel times)
+# HOW IT USES OTHER MODULES:
+#     dtp_platform   → book and cancel slots (_book_slots)
+#     objects        → process_truck and tp3.enter are yielded (blocking calls)
+#     infrastructure → gate_in / gate_out ANPR events
+#     road           → travel time samples at every leg
 # =============================================================================
 import sys
 import os
-from typing import Dict
+from typing import Dict, List, Optional
 
 import simpy
 import numpy as np
 
-# Setting base path for local imports
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
 import config.config
 
@@ -49,23 +27,18 @@ from env.dtp_platform import DTPPlatform
 from env.infrastructure import InfrastructureLayer
 from env.road import RoadNetwork
 
-# =============================================================================
-# PARAMETERS IMPORT
-# =============================================================================
 params = config.load_params()
 
 # =============================================================================
-# DEMAND GENERATOR
+# MAIN CLASS
 # =============================================================================
 class DemandGenerator:
     """
     Generates truck arrivals and runs each truck's journey through the system.
-
-    Instantiated once per episode inside SchipholCargoEnv.reset().
-    Call env.process(generator.run()) to start the arrival loop.
+    Instantiated once per episode in schiphol_env.reset().
     """
-    ghas = list(params["gha"].keys())
-    
+    GHA_IDS = list(params["ghas"].keys())
+
     def __init__(
         self,
         env: simpy.Environment,
@@ -73,7 +46,7 @@ class DemandGenerator:
         terminals: Dict[str, GHATerminal],
         tp3: TP3Buffer,
         infra: InfrastructureLayer,
-        road: RoadNetwork
+        road: RoadNetwork,
     ):
         self.env = env
         self.dtp = dtp
@@ -82,280 +55,257 @@ class DemandGenerator:
         self.infra = infra
         self.road = road
 
-        # ── Demand parameters ────────────────────────────────────────────────
-        self._arrival_rate = params["demand"]["arrival_rate"]
-        self._peak_mult = params["demand"]["peak_multiplier"]
-        self._peak_window = params["demand"]["peak_window"]
-        self._flow_split = params["demand"]["flow_split"]
-        self._orig_split = params["demand"]["origin_split"]
-        self._multi_stop = params["demand"]["multi_stop_probs"]
-        
+        d = params["demand"]
+        self._arrival_rate = d["arrival_rate"]
+        self._peak_mult = d["peak_multiplier"]
+        self._peak_window = d["peak_window"]
+        self._ramp_dur = d["ramp_dur"]
+        self._flow_split = d["flow_split"]
+        self._orig_split = d["origin_split"]
+        self._multi_stop = d["multi_stop_probs"]
+        self._max_tp3_wait = d["max_tp3_wait"]
+        self._parcels_min = d["parcels_min"]
+        self._parcels_max = d["parcels_max"]
+        self._travel_time = d["origin_travel_time"]
+
         self._truck_counter = 0
-        
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Main arrival logic
+    # ARRIVAL LOOP
     # ─────────────────────────────────────────────────────────────────────────
     def run(self):
+        """
+        Infinite SimPy generator. Samples inter-arrival times and spawns
+        one independent truck journey process per accepted arrival.
+        Uses thinning: sample at max rate, accept with probability
+        actual_rate / max_rate.
+        """
         max_rate = self._arrival_rate * self._peak_mult
 
         while True:
-            inter_arrival = np.random.exponential(1, max_rate)
-            yield self.env.timeout(inter_arrival)
-            
-            actual_rate = self._rate_at(self.env.now)
-            if np.random.random() < actual_rate / max_rate:
+            # Sample next potential arrival from the max-rate Poisson
+            yield self.env.timeout(np.random.exponential(1.0 / max_rate))
+
+            # Accept or reject based on current actual rate
+            if np.random.random() < self._rate_at(self.env.now) / max_rate:
                 truck = self._create_truck()
                 self.env.process(self._truck_journey(truck))
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # Main arrival logic
-    # ─────────────────────────────────────────────────────────────────────────
-    def _rate_at(self, t: int) -> float:
-        """Returns the correct arrival rate at the time 't' of the day."""
+
+    def _rate_at(self, t: float) -> float:
+        """
+        Arrival rate (trucks/min) at simulation time t.
+        Periodic over 24h. Ramps up before peak, flat during peak, ramps down.
+        """
         t = t % 1440
-        peak_start = self._peak_window[0] % 1440
-        peak_end = self._peak_window[1] % 1440
-        ramp_dur = params["demand"]["ramp_dur"]
-        
-        if t < peak_start - ramp_dur or t > peak_end + ramp_dur:
+        peak_start = self._peak_window[0]
+        peak_end = self._peak_window[1]
+        ramp = self._ramp_dur
+
+        if t < peak_start - ramp or t > peak_end + ramp:
             return self._arrival_rate
-        
-        elif peak_start - ramp_dur <= t < peak_start:
-            frac = (t - (peak_start - ramp_dur)) / ramp_dur
+
+        elif peak_start - ramp <= t < peak_start:
+            frac = (t - (peak_start - ramp)) / ramp
             return self._arrival_rate * (1 + frac * (self._peak_mult - 1))
-        
+
         elif peak_start <= t <= peak_end:
             return self._arrival_rate * self._peak_mult
-        
+
         else:
-            frac = (t - peak_end) / ramp_dur
+            frac = (t - peak_end) / ramp
             return self._arrival_rate * (self._peak_mult - frac * (self._peak_mult - 1))
-        
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Truck creation
+    # TRUCK CREATION
     # ─────────────────────────────────────────────────────────────────────────
     def _create_truck(self) -> Truck:
-        """Creates a truck with incremental license plate. All probs come from params."""
+        """Samples truck attributes from config distributions."""
         self._truck_counter += 1
-        truck_id = f"TRK-{self._truck_counter:05d}"
-        
-        flow_type = np.random.choice(list(self._flow_split.keys()), p=list(self._flow_split.values()))
-        origin_type = np.random.choice(list(self._orig_split.keys()), p=list(self._orig_split.values()))
+
+        flow_type = np.random.choice(
+            list(self._flow_split.keys()),
+            p=list(self._flow_split.values())
+        )
+        origin_type = np.random.choice(
+            list(self._orig_split.keys()),
+            p=list(self._orig_split.values())
+        )
         n_stops = np.random.choice([1, 2, 3, 4], p=self._multi_stop)
-        ghas = np.random.choice(self.ghas, size=n_stops, replace=False)
-        
+        ghas = np.random.choice(self.GHA_IDS, size=n_stops, replace=False)
+
         manifest = [
-            {
-                "gha": gha,
-                "parcels": int(np.random.randint(
-                    params["demand"]["parcels_min"],
-                    params["demand"]["parcels_max"]
-                ))
-            }
+            {"gha": gha, "parcels": int(np.random.randint(
+                self._parcels_min, self._parcels_max
+            ))}
             for gha in ghas
         ]
-        
+
         return Truck(
-            truck_id=truck_id,
+            truck_id=f"TRK-{self._truck_counter:05d}",
             flow_type=flow_type,
             origin_type=origin_type,
-            manifest=manifest
+            manifest=manifest,
         )
-    
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Slot booking
+    # SLOT BOOKING LOGIC
     # ─────────────────────────────────────────────────────────────────────────
     def _book_slots(self, truck: Truck) -> bool:
-        """FCFS logic, will be replaced by MARL engine."""
-        # Earliest possible arrival at first GHA given origin travel time
-        max_travel = max(self._origin_to_gate("nl"))    # conservative
-        earliest_next_slot = self.env.now + max_travel + self.dtp.freeze_time
-        booked_count = 0
-        
+        """Books one slot per GHA stop in manifest order. Enforces non-overlapping windows."""
+        _, max = self._travel_time[truck.origin_type]
+        earliest = self.env.now + max + self.dtp.freeze_time    # use max travel time to be conservative
+
         for stop in truck.manifest:
             gha = stop["gha"]
-            
-            available_slots = sorted(self.dtp.get_available_slots(gha, horizon=480))
-            feasible = [s for s in available_slots if s >= earliest_next_slot]
-            
+            available = self.dtp.get_available_slots(gha, horizon=480)
+            feasible = [s for s in available if s >= earliest]
+
             if not feasible:
-                for booked_gha, booked_start in truck.booked_slots.items():
-                    self.dtp.cancel_book(booked_gha, booked_start, truck.truck_id)
-                truck.booked_slots.clear()
+                self._cancel_all(truck)
                 return False
-            
-            chosen_slot = feasible[0]
-            success = self.dtp.book_slot(gha, chosen_slot, truck.truck_id)
-            
-            if not success:
-                for booked_gha, booked_start in truck.booked_slots.items():
-                    self.dtp.cancel_book(booked_gha, booked_start, truck.truck_id)
-                truck.booked_slots.clear()
+
+            chosen = feasible[0]
+            if not self.dtp.book_slot(gha, chosen, truck.truck_id):
+                self._cancel_all(truck)
                 return False
-            
-            truck.booked_slots[gha] = chosen_slot
-            booked_count += 1
-            
-            earliest_next_slot = chosen_slot + self.dtp.slot_duration + 5    # hardcoded
-        
-        return booked_count == len(truck.manifest)
-    
+
+            truck.booked_slots[gha] = chosen    # NOTE: does it not have to signal somebody else about the booking??
+            # Next slot must start after this one ends (plus intra-airport travel buffer)
+            earliest = chosen + self.dtp.slot_duration + self._intra_airport_buffer()
+
+        return True
+
+    def _cancel_all(self, truck: Truck) -> None:
+        """Rollback all bookings made so far for this truck."""
+        for gha, slot_start in truck.booked_slots.items():
+            self.dtp.cancel_book(gha, slot_start, truck.truck_id)
+        truck.booked_slots.clear()
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Truck journey
+    # TRUCK JOURNEY LOGIC
     # ─────────────────────────────────────────────────────────────────────────
     def _truck_journey(self, truck: Truck):
         """
-        SimPy generator: complete lifecycle of one truck from origin to departure.
+        SimPy generator: complete lifecycle of one truck.
 
-        STAGES:
-          1. Book DTP slots (FCFS baseline policy)
-          2. Travel from origin to Main Gate
-          3. Gate ANPR check
-          4. Route to TP3 (if early for first slot) or directly to first GHA
-          5. For each GHA stop in slot-time order:
-               a. Travel to GHA (from gate or from TP3 or from previous GHA)
-               b. GHATerminal.process_truck() → dock → service → depart
-               c. Handle TP3 redirect if process_truck returned STATUS_AT_TP3
-          6. Exit gate (ANPR gate_out event)
+        Stage 1 — Book slots (before dispatching the truck)
+        Stage 2 — Wait until departure time, then travel to gate
+        Stage 3 — Gate ANPR
+        Stage 4 — Route to first GHA directly or via TP3 if too early
+        Stage 5 — Visit each GHA stop in slot-time order
+        Stage 6 — Exit gate
         """
-        # ── Stage 1: Book DTP Slots ──────────────────────────────────────────
-        all_booked = self._book_slots(truck)
-        if not all_booked:
+        # ── Stage 1: Book slots ───────────────────────────────────────────────
+        if not self._book_slots(truck):
             return
-        
-        # ── Stage 2: Travel to Main Gate ─────────────────────────────────────
-        first_slot = min(truck.booked_slots.values())
+
+        # ── Stage 2: Wait for departure time, then travel to gate ─────────────
+        first_gha = min(truck.booked_slots, key=truck.booked_slots.get)
+        first_slot = truck.booked_slots[first_gha]
         travel_to_gate = self._origin_to_gate(truck.origin_type)
-        depart_at = first_slot - travel_to_gate - self.road.time_gate_to_gha(
-            min(truck.booked_slots, key=truck.booked_slots.get)
-        )
-        
-        wait = max(0.0, depart_at - self.env.now)
-        yield self.env.timeout(wait)
+        gate_to_gha_time = self.road.time_from_to("gate", first_gha)
+        depart_at = first_slot - travel_to_gate - gate_to_gha_time
+        yield self.env.timeout(max(0.0, depart_at - self.env.now))
         yield self.env.timeout(travel_to_gate)
-        
-        # ── Stage 3: Main Gate ANPR Check ────────────────────────────────────
-        if not all_booked:
-            return
+
+        # ── Stage 3: Gate ANPR ────────────────────────────────────────────────
         self.infra.gate_in(self.env.now, truck)
-        
-        # ── Stage 4: travel to first gha or tp3 ──────────────────────────────
-        # Sort remaining slots
+
+        # ── Stage 4: Route to first GHA or TP3 ───────────────────────────────
+        # Sort stops by slot time — visit in chronological order
         ordered_stops = sorted(
             truck.stops_remaining,
             key=lambda s: truck.booked_slots[s["gha"]]
         )
+
         first_gha = ordered_stops[0]["gha"]
         first_slot_start = truck.booked_slots[first_gha]
-        
-        # Compute ETA to first gha
-        eta_first_gha = self.road.time_gate_to_gha(first_gha)
-        arrival_if_direct = self.env.now + eta_first_gha
-        
-        if arrival_if_direct < first_slot_start:
-            # Truck early, send to tp3
-            yield self.env.timeout(self.road.time_gate_to_tp3())
-            yield self.env.process(self.tp3.enter(truck))
-            
-            # Wait in tp3
-            depart_tp3_at = first_slot_start - self.road.time_tp3_to_gha(first_gha)
-            hold_tp3 = max(0.0, depart_tp3_at - self.env.now)
-            if hold_tp3 > 0:
-                yield self.env.timeout(hold_tp3)
-            
-            # Release from tp3
-            self.tp3.release(truck.truck_id)
-            
-            # Travel to first gha
-            yield self.env.timeout(self.road.time_tp3_to_gha(first_gha))
-            from_tp3 = True
+        eta_to_first_gha = self.road.time_from_to("gate", first_gha)
 
+        if self.env.now + eta_to_first_gha < first_slot_start:
+            # Truck arrives too early — hold in TP3
+            yield self.env.timeout(self.road.time_from_to("gate", "tp3"))
+            yield self.env.process(self.tp3.enter(truck))
+
+            # Wait in TP3 until departure time for first GHA
+            tp3_to_gha_time = self.road.time_from_to("tp3", first_gha)
+            depart_tp3_at = first_slot_start - tp3_to_gha_time
+            yield self.env.timeout(max(0.0, depart_tp3_at - self.env.now))
+
+            self.tp3.release(truck.truck_id)
+            yield self.env.timeout(tp3_to_gha_time)
+            prev_location = "tp3"
         else:
-            # Truck is not early, go to gha
-            yield self.env.timeout(eta_first_gha)
-            from_tp3 = False
-        
-        # ── Stage 5: Visit each gha ──────────────────────────────────────────
-        for stop in ordered_stops:
+            # Truck arrives on time — go directly
+            yield self.env.timeout(eta_to_first_gha)
+            prev_location = "gate"
+
+        # ── Stage 5: Visit each GHA stop ──────────────────────────────────────
+        for i, stop in enumerate(ordered_stops):
             gha = stop["gha"]
-            if not from_tp3 and stop != ordered_stops[0]:
-                yield self.env.timeout(self._intra_airport_travel(gha))    # NOTE: must implement specific travel times
-                
-            from_tp3 = False
-            terminal = self.terminals[gha]
-            yield self.env.provess(terminal.process_truck(truck, self.dtp))
-            
-            # Check if truck was redirect to tp3
+
+            # Intra-airport travel for stops after the first
+            if i > 0:
+                yield self.env.timeout(
+                    self.road.time_from_to(prev_location, gha)
+                )
+
+            yield self.env.process(
+                self.terminals[gha].process_truck(truck, self.dtp)
+            )
+
             if truck.status == Truck.STATUS_AT_TP3:
-                yield self.env.process(self._handle_tp3_redirect(truck, gha))
-            
-        # ── Stage 6: Exit ────────────────────────────────────────────────────
+                yield self.env.process(
+                    self._handle_tp3_redirect(truck, gha)
+                )
+
+            prev_location = gha
+
+        # ── Stage 6: Exit ─────────────────────────────────────────────────────
         truck.status = Truck.STATUS_DEPARTED
         self.infra.gate_out(self.env.now, truck)
-        
+
     # ─────────────────────────────────────────────────────────────────────────
-    # Handler for the case truck gets redirected to tp3
+    # HELPER FOR TP3 REDIRECTION
     # ─────────────────────────────────────────────────────────────────────────
     def _handle_tp3_redirect(self, truck: Truck, gha: str):
-        """
-        SimPy generator: handles the case where GHATerminal returned STATUS_AT_TP3.
-        Truck travels to TP3, parks, waits for a standby signal or its next available
-        slot, then travels back to the GHA for another attempt.
-
-        This is the FCFS fallback. In Scenario MO, the Orchestrator calls
-        tp3.release() directly with a targeted truck_id, bypassing this timer.
-        """
-        # Travel from gha to tp3
-        yield self.env.timeout(self.road.time_tp3_to_gha(gha))
+        """SimPy generator: called when process_truck returns STATUS_AT_TP3."""
+        yield self.env.timeout(self.road.time_from_to(gha, "tp3"))
         yield self.env.process(self.tp3.enter(truck))
-        
-        MAX_WAIT = 90    # hardcoded
+
         waited = 0
-        
-        while waited < MAX_WAIT:
+        while waited < self._max_tp3_wait:
             yield self.env.timeout(1)
             waited += 1
-            
+
             for signal in self.tp3.get_pending_signals():
                 if signal["gha"] == gha:
-                    self.tp3.release(truck.truck_id)
                     signal["consumed"] = True
-                    yield self.env.timeout(self.road.time_tp3_to_gha(gha))
-                    terminal = self.terminals[gha]
-                    yield self.env.process(terminal.process_truck(truck, self.dtp))
+                    self.tp3.release(truck.truck_id)
+                    yield self.env.timeout(self.road.time_from_to("tp3", gha))
+                    yield self.env.process(self.terminals[gha].process_truck(truck, self.dtp))
                     return
-                
+
+            # Check if it is time to depart for the booked slot
             booking = self.dtp.get_booking(gha, truck.truck_id)
             if booking is not None:
-                depart_at = booking - self.road.time_tp3_to_gha(gha)
-                if self.env.now >= depart_at:
+                tp3_to_gha = self.road.time_from_to("tp3", gha)
+                if self.env.now >= booking - tp3_to_gha:
                     self.tp3.release(truck.truck_id)
-                    yield self.env.timeout(self.road.time_tp3_to_gha(gha))
-                    terminal = self.terminal[gha]
-                    yield self.env.process(terminal.process_truck(truck, self.dtp))
+                    yield self.env.timeout(tp3_to_gha)
+                    yield self.env.process(self.terminals[gha].process_truck(truck, self.dtp))
                     return
-                
-        # Truck gives up on this stop
+
+        # Timeout — give up on this stop
         self.tp3.release(truck.truck_id)
         truck.complete_stop(gha)
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Travel time helpers
+    # HELPER FOR TP3 REDIRECTION
     # ─────────────────────────────────────────────────────────────────────────
     def _origin_to_gate(self, origin_type: str) -> float:
-        """Sample travel time from origin to Main Gate."""
-        ranges = {
-            "rfs": tuple(params["demand"]["origin_travel_time"]["rfs"]),
-            "nl": tuple(params["demand"]["origin_travel_time"]["nl"]),
-            "forwarder": tuple(params["demand"]["origin_travel_time"]["forwarder"]),
-            "tp3": tuple(params["demand"]["origin_travel_time"]["tp3"])
-        }
-        lo, hi = ranges.get(origin_type, None)
+        lo, hi = self._travel_time[origin_type]
         return float(np.random.uniform(lo, hi))
-    
-    def _intra_airport_travel(self, next_gha: str) -> float:
-        """Travel time between consecutive GHA stops within the airport perimeter."""
-        node_map = {"dnata": "N3", "wfs": "N4", "swiss": "N5", "klm": "N6"}
-        target_node = node_map[next_gha]
-        base = self.road.segments[f"N2_{target_node}"]
-        return self.road._apply_stochastic_noise(base)
+
+    def _intra_airport_buffer(self) -> float:
+        return max(params["road"]["segments"].values())

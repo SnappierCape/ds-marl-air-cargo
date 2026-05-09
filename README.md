@@ -70,9 +70,12 @@ The project is based on the following rules / assumptions:
 | record_no_show        | objects          | gha, slot_start, truck_id                        | None       |
 | get_available_slots   | demand           | gha, horizon                                     | List[int]  |
 | get_booking           | demand           | gha, truck_id                                    | int|None   |
-| count_available_slots | ─                | gha, horizon                                     | int        |
-| _free_slot            | ─                | gha, slot_start, truck_id                        | bool       | 
-| _is_docked            | ─                | gha, slot_start, truck_id                        | bool       | 
+| _validate_gha         | ─                | gha                                              | None       |
+| _assign_slot          | ─                | gha, slot_start, truck_id                        | None       |
+| _free_slot            | ─                | gha, slot_start, truck_id                        | bool       |
+| _set_phase            | ─                | gha, slot_start, truck_id, phase                 | None       | 
+| _is_docked            | ─                | gha, slot_start, truck_id                        | bool       |
+| _taken_docks_at       | ─                | gha, new_start                                   | int        | 
 
 ### Module: infrastructure
 
@@ -102,15 +105,15 @@ The project is based on the following rules / assumptions:
 *GHATerminal*
 | Method                  | Called by | Args                      | Returns        |
 |-------------------------|-----------|---------------------------|----------------|
-| _route_dock_pool        | ─         | flow_type                 | simpy.Resource |
-| _route_queue            | ─         | flow_type                 | simpy.Resource |
+| _dock_pool              | ─         | flow_type                 | simpy.Resource |
+| _queue                  | ─         | flow_type                 | simpy.Resource |
 | process_truck           | demand    | truck, dtp                | None           |
 | release_window_watcher  | ─         | slot_start, dtp, tp3      | None           |
 | exp_occupancy           | ─         | ─                         | float          |
 | imp_occupancy           | ─         | ─                         | float          |
-| exp_queue_norm          | ─         | max_q                     | float          |
-| imp_queue_norm          | ─         | max_q                     | float          |
-| upcoming_bookings_norm  | ─         | dtp, horizon, max_b       | float          |
+| exp_queue_norm          | ─         | ─                         | float          |
+| imp_queue_norm          | ─         | ─                         | float          |
+| upcoming_bookings_norm  | ─         | dtp, horizon              | float          |
 
 *TP3Buffer*
 | Method                     | Called by    | Args                         | Returns       |
@@ -118,7 +121,7 @@ The project is based on the following rules / assumptions:
 | enter                      | demand       | truck                        | None          |
 | release                    | demand       | truck_id                     | Truck|None    |
 | release_next               | ─            | gha                          | Truck|None    |
-| signal_standby_opportunity | ─            | gha, slot_start, signal_time | None          |
+| signal_standby_opportunity | ─            | gha, slot_start, signal_time | List[Dict]    |
 | get_pending_signals        | demand       | —                            | List[Dict]    |
 | occupancy_ratio            | ─            | —                            | float         |
 | n_parked                   | ─            | ─                            | int           |

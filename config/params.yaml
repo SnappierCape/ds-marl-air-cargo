@@ -112,14 +112,14 @@ marl:
   alpha: 0.5
   gamma: 0.99
   reward_weights:
-    w_parcel_on_time: 2.0
-    w_wait_per_min: 0.05
-    w_missed_slot: 10.0
-    w_no_show: 5.0
-    w_dock_util: 5.0
-    w_queue_per_step: 0.1
-    w_wpr_global: 1.0
-    w_util_std: 0.5
+    parcel_on_time: 2.0
+    wait_per_min: 0.05
+    missed_slot: 10.0
+    no_show: 5.0
+    dock_util: 5.0
+    queue_per_step: 0.1
+    wpr_global: 1.0
+    util_std: 0.5
 
 # =============================================================================
 # BOOKING RULES

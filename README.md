@@ -143,6 +143,20 @@ The project is based on the following rules / assumptions:
 | sample    | objects   | flow_type | float      |
 | mean      | ─         | flow_type | float      |
 
+### Module: demand
+
+| Method                | Called by | Args        | Returns |
+| ----------------------|-----------|-------------|---------|
+| run                   | ─         | ─           | None    |
+| _rate_at              | ─         | t           | float   |
+| _create_truck         | ─         | ─           | Truck   |
+| _book_slots           | ─         | truck       | bool    |
+| _cancel_all           | ─         | truck       | None    |
+| _truck_journey        | ─         | truck       | None    |
+| _handle_tp3_redirect  | ─         | truck, gha  | None    |
+| _origin_to_gate       | ─         | origin_type | float   |
+| _intra_airport_buffer | ─         | ─           | float   |
+
 ---
 
 ## Glossary

@@ -35,7 +35,7 @@ import gymnasium as gym
 from pettingzoo import ParallelEnv
 
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
@@ -142,13 +142,13 @@ class SchipholCargoEnv(ParallelEnv):
 
         # 6. Collect outputs
         obs = {a: self._get_obs(a) for a in self.agents}
-        rews = {a: self._get_reward(a, r_global) for a in self.agents}
+        rewards = {a: self._get_reward(a, r_global) for a in self.agents}
         dones = {a: False for a in self.agents}
         infos = {a: {"action_mask": self._get_mask(a)} for a in self.agents}
 
         # PettingZoo convention: empty agents list signals episode end.
         # Episode is controlled externally by env.run(until=T) in train.py.
-        return obs, rews, dones, infos
+        return obs, rewards, dones, infos
 
     # ─────────────────────────────────────────────────────────────────────────
     # ACTIONS
@@ -176,10 +176,10 @@ class SchipholCargoEnv(ParallelEnv):
         elif agent in GHA_IDS:
             # Action 1: publish next slot window
             # Action 2: publish the slot window after that
-            next_windows = self._next_publishable_windows(gha)
+            next_windows = self._next_publishable_windows(agent)
             idx = action - 1
             if idx < len(next_windows):
-                self.dtp.publish_slot(gha, next_windows[idx])
+                self.dtp.publish_slot(agent, next_windows[idx])
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
@@ -219,7 +219,7 @@ class SchipholCargoEnv(ParallelEnv):
             # Available slot count per GHA (normalised by total docks)
             for gha in GHA_IDS:
                 n_slots = len(self.dtp.get_available_slots(gha, horizon=120))
-                obs[i] = min(n_slots / params["gha"][gha]["total"], 1.0)
+                obs[i] = min(n_slots / params["ghas"][gha]["total"], 1.0)
                 i += 1
             # Export and import occupancy per GHA
             for gha in GHA_IDS:
@@ -228,7 +228,7 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── GHA ───────────────────────────────────────────────────────────────
         elif agent in GHA_IDS:
-            t = self.terminals[gha]
+            t = self.terminals[agent]
             i = 0
             obs[i] = t.exp_occupancy(); i += 1
             obs[i] = t.imp_occupancy(); i += 1
@@ -241,7 +241,7 @@ class SchipholCargoEnv(ParallelEnv):
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             # Other GHAs' occupancies (context for load balancing)
             for other in GHA_IDS:
-                if other != gha:
+                if other != agent:
                     obs[i] = self.terminals[other].exp_occupancy(); i += 1
                     obs[i] = self.terminals[other].imp_occupancy(); i += 1
 
@@ -274,8 +274,7 @@ class SchipholCargoEnv(ParallelEnv):
         if agent == "transporter":
             r_private = self.kpi.transporter_reward(self.dtp)
         else:
-            gha = agent[4:]
-            r_private = self.kpi.gha_reward(gha, self.terminals[gha])
+            r_private = self.kpi.gha_reward(agent, self.terminals[agent])
 
         return (1 - self.alpha) * r_private + self.alpha * r_global
 
@@ -294,7 +293,7 @@ class SchipholCargoEnv(ParallelEnv):
                     mask[i + 1] = 1
 
         elif agent in GHA_IDS:
-            windows = self._next_publishable_windows(gha)
+            windows = self._next_publishable_windows(agent)
             for i, _ in enumerate(windows):
                 if i + 1 < dim:
                     mask[i + 1] = 1
@@ -342,12 +341,12 @@ class SchipholCargoEnv(ParallelEnv):
         One slot per dock per 45-min window.
         """
         now = self.sim.now
-        slot_dur = params["booking"]["slot_duration"]
-        lead_time = params["booking"]["lead_time"]
-        freeze = params["booking"]["freeze_time"]
+        slot_dur = params["dtp_rules"]["slot_duration"]
+        lead_time = params["dtp_rules"]["lead_time"]
+        freeze = params["dtp_rules"]["freeze_time"]
 
         for gha in GHA_IDS:
-            n_docks = params["gha"][gha]["total"]
+            n_docks = params["ghas"][gha]["total"]
             t = now + freeze    # start just outside the frozen window
             while t <= now + lead_time:
                 for _ in range(n_docks):
@@ -369,8 +368,8 @@ class SchipholCargoEnv(ParallelEnv):
     def _next_publishable_windows(self, gha: str) -> List[int]:
         """Next two slot windows a GHA can publish right now."""
         now = int(self.sim.now)
-        slot_dur = params["booking"]["slot_duration"]
-        freeze = params["booking"]["freeze_time"]
+        slot_dur = params["dtp_rules"]["slot_duration"]
+        freeze = params["dtp_rules"]["freeze_time"]
         start = now + freeze
         # Round up to next clean slot boundary
         start = start + (slot_dur - start % slot_dur) % slot_dur

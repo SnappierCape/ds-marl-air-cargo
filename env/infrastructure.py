@@ -11,14 +11,14 @@
 #     This module has no dependencies on SimPy, params, or other custom modules.
 #     It only knows about trucks via duck typing (it reads truck attributes).
 # =============================================================================
-from dataclasses import dataclass
-from typing import List, Optional
-from enum import Enum
-
 from __future__ import annotations
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from env.objects import Truck
+    
+from dataclasses import dataclass
+from typing import List, Optional
+from enum import Enum
 
 # =============================================================================
 # CHECKPOINT IDENTIFIERS

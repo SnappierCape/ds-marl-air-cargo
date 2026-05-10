@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 import simpy
 
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 from env.infrastructure import InfrastructureLayer
 from env.dtp_platform import DTPPlatform
 from env.service_time import ServiceTimeModel
@@ -201,11 +201,11 @@ class GHATerminal:
         return self.docks_imp.count / self.n_imp if self.n_imp > 0 else 0.0
 
     def exp_queue_norm(self) -> float:
-        max_q = params["gha"][self.gha]["export"]
+        max_q = params["ghas"][self.gha]["export"]
         return min(len(self.queue_exp) / max_q, 1.0)
 
     def imp_queue_norm(self) -> float:
-        max_q = params["gha"][self.gha]["import"]
+        max_q = params["ghas"][self.gha]["import"]
         return min(len(self.queue_imp) / max_q, 1.0)
 
     def upcoming_bookings_norm(self, dtp: DTPPlatform, horizon: int) -> float:

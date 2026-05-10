@@ -12,7 +12,7 @@ from typing import Dict
 
 # Setting base path for local imports
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 
 params = config.load_params()
 

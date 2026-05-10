@@ -1,144 +1,389 @@
 # =============================================================================
-# PETTINGZOO FINAL WRAPPER
+# PETTINGZOO ENVIRONMENT WRAPPER
 # =============================================================================
 # DESCRIPTION:
-#     To do...
+#     Bridges the SimPy simulation and the EPyMARL training framework.
+#     Implements the PettingZoo ParallelEnv API.
+#
+# RESPONSIBILITIES:
+#     reset()  → instantiate fresh simulation objects, return first observations
+#     step()   → apply actions, advance SimPy, return (obs, rewards, dones, infos)
+#
+# AGENT ROSTER:
+#     Scenario M  (no orchestrator): transporter, ghas
+#     Scenario MO (orchestrator): above + orchestrator
+#
+# ACTION SPACES:
+#     Transporter  → Discrete(N_SLOTS + 1)
+#                    0 = no_op
+#                    1..N = book the i-th available slot in the platform
+#     GHA (each)   → Discrete(3)
+#                    0 = no_op
+#                    1 = publish next slot window
+#                    2 = publish two slot windows ahead
+#     Orchestrator → Discrete(N_TP3_TRUCKS * N_GHAS + 1)
+#                    0 = no_op
+#                    else = complete control over trucks and docks except for already docked trucks
 # =============================================================================
+import sys
+import os
+from typing import Dict, List, Optional, Tuple
 
-import yaml, simpy, numpy as np
-from pettingzoo import ParallelEnv
+import simpy
+import numpy as np
 import gymnasium as gym
+from pettingzoo import ParallelEnv
 
-from .simulation import GHATerminal, TP3Buffer, Truck
-from .dtp_platform import DTPPlatform
-from .infrastructure import InfrastructureLayer
-from .service_time  import ServiceTimeModel
-from .demand import DemandGenerator
-from .kpi_tracker import KPITracker
-from agents.transporter import TransporterAgent
-from agents.gha import GHAAgent
-from agents.orchestrator import OrchestratorAgent
+sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
+import config.config
+
+from env.objects import Truck, GHATerminal, TP3Buffer
+from env.dtp_platform import DTPPlatform
+from env.infrastructure import InfrastructureLayer
+from env.service_time import ServiceTimeModel
+from env.road import RoadNetwork
+from env.demand import DemandGenerator
+from env.kpi_tracker import KPITracker
+
+params = config.load_params()
+
+# Fixed constants
+N_SLOT_ACTIONS = 20    # max bookable slots visible to Transporter at any step
+N_TP3_ACTIONS = 10    # max trucks the Orchestrator can release per step
+GHA_IDS = list(params["ghas"].keys())
+N_GHAS = len(GHA_IDS)
 
 # =============================================================================
-# INITIALIZATION
-# =============================================================================
-GHA_IDS = ["dnata", "klm", "swissport", "menzies_wfs"]
-
-# =============================================================================
-# MAIN WRAPPER
+# MAIN CLASS
 # =============================================================================
 class SchipholCargoEnv(ParallelEnv):
+    """
+    PettingZoo ParallelEnv: all agents act simultaneously every step.
+    One step = step_min minutes of simulated time (from params).
+    """
     metadata = {"name": "schiphol_cargo_v0"}
 
-    def __init__(self, sim_params_path: str, scenario_cfg: dict):
-        # Load ALL numerical parameters from YAML
-        with open(sim_params_path) as f:
-            self.cfg = yaml.safe_load(f)
+    def __init__(self, with_orchestrator: bool = False):
+        super().__init__()
+        self.with_orchestrator = with_orchestrator
+        self.step_min = params["marl"]["step_min"]
+        self.alpha = params["marl"]["alpha"]
 
-        self.with_orchestrator = scenario_cfg.get("with_orchestrator", False)
-        self.alpha  = self.cfg["marl"]["alpha"]
-        self.step_m = self.cfg["marl"]["step_minutes"]
-
-        self.possible_agents = ["transporter"] + [f"gha_{g}" for g in GHA_IDS]
-        if self.with_orchestrator:
+        self.possible_agents = ["transporter"] + [f"{g}" for g in GHA_IDS]
+        if with_orchestrator:
             self.possible_agents.append("orchestrator")
-        self.agents = self.possible_agents[:]
 
-        # Agent logic instances (stateless — only compute obs/reward/mask)
-        self._t_agent = TransporterAgent(self.cfg)
-        self._g_agents = {g: GHAAgent(self.cfg) for g in GHA_IDS}
-        self._o_agent  = OrchestratorAgent(self.cfg) if self.with_orchestrator else None
-
-    def observation_space(self, agent):
-        dims = {
-            "transporter":     32,
-            "gha_dnata":       21,  "gha_klm":         21,
-            "gha_swissport":   21,  "gha_menzies_wfs": 21,
-            "orchestrator":    119,
-        }
-        return gym.spaces.Box(0.0, 1.0, shape=(dims[agent],), dtype=np.float32)
-
-    def action_space(self, agent):
-        dims = {
-            "transporter":     50,
-            "gha_dnata":       3,   "gha_klm":         3,
-            "gha_swissport":   3,   "gha_menzies_wfs": 3,
-            "orchestrator":    20,
-        }
-        return gym.spaces.Discrete(dims[agent])
-
-    def reset(self, seed=None, options=None):
-        self.sim = simpy.Environment()
-
-        # Infrastructure layer — created first, passed to everything
-        self.infra = InfrastructureLayer()
-
-        # Service time model — reads distribution config
-        self.svc   = ServiceTimeModel(self.cfg["service_time"])
-
-        # GHA terminals — each gets infra + svc model
-        self.terminals = {
-            g: GHATerminal(self.sim, g, self.cfg, self.svc, self.infra)
-            for g in GHA_IDS
-        }
-
-        # TP3 — 140 slots, constrained
-        self.tp3 = TP3Buffer(self.sim, self.infra)
-
-        # DTP platform — rule engine
-        self.dtp = DTPPlatform(self.sim)
-
-        # KPI tracker — reads from infra.event_log
-        self.kpi = KPITracker(self.infra)
-
-        self.agents = self.possible_agents[:]
-
-        # Pre-publish slots for the episode
-        ep_start = self.cfg["demand"]["episode_start_min"]
-        ep_end   = self.cfg["demand"]["episode_end_min"]
-        for g in GHA_IDS:
-            for t in range(ep_start, ep_end, 30):
-                self.dtp.publish_slot(g, float(t))
-
-        # Start demand generator
-        self.sim.process(
-            DemandGenerator(self.sim, self.cfg, self.dtp,
-                             self.terminals, self.tp3,
-                             self.infra).run()
+    # ─────────────────────────────────────────────────────────────────────────
+    # SPACE DECLARATIONS
+    # ─────────────────────────────────────────────────────────────────────────
+    def observation_space(self, agent: str) -> gym.Space:
+        return gym.spaces.Box(
+            low=0.0, high=1.0,
+            shape=(self._obs_dim(agent),),
+            dtype=np.float32
         )
 
-        obs   = {a: self._obs(a)  for a in self.agents}
-        infos = {a: {"action_mask": self._mask(a)} for a in self.agents}
+    def action_space(self, agent: str) -> gym.Space:
+        return gym.spaces.Discrete(self._action_dim(agent))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # RESET — called at the start of every episode
+    # ─────────────────────────────────────────────────────────────────────────
+    def reset(self, seed=None, options=None) -> Tuple[Dict]:
+        self.sim = simpy.Environment()
+        self.infra = InfrastructureLayer()
+        self.svc_tm = ServiceTimeModel(params)
+        self.road = RoadNetwork(params["road"])
+        self.dtp = DTPPlatform(self.sim)
+        self.tp3 = TP3Buffer(self.sim, self.infra)
+        self.kpi = KPITracker()
+        self.terminals: Dict[str, GHATerminal] = {
+            gha: GHATerminal(self.sim, gha, self.svc_tm, self.infra)
+            for gha in GHA_IDS
+        }
+
+        # Pre-publish slots for the first 72h so trucks can book on arrival
+        self._prepopulate_slots()
+
+        # Start the demand generator — runs as a background SimPy process
+        self.demand = DemandGenerator(
+            self.sim, self.dtp, self.terminals,
+            self.tp3, self.infra, self.road
+        )
+        self.sim.process(self.demand.run())
+
+        # Reset agent list (PettingZoo convention)
+        self.agents = self.possible_agents[:]
+
+        obs = {a: self._get_obs(a)  for a in self.agents}
+        infos = {a: {"action_mask": self._get_mask(a)} for a in self.agents}
         return obs, infos
 
-    def step(self, actions: dict):
-        # 1. Apply actions
+    # ─────────────────────────────────────────────────────────────────────────
+    # MARL STEP
+    # ─────────────────────────────────────────────────────────────────────────
+    def step(self, actions: Dict[str, int]) -> Tuple[Dict]:
+        # 1. Apply each agent's action to the DTP platform
         for agent, action in actions.items():
-            self._apply(agent, action)
+            self._apply_action(agent, action)
 
-        # 2. Advance simulation
-        self.sim.run(until=self.sim.now + self.step_m)
+        # 2. Advance SimPy by one step
+        self.sim.run(until=self.sim.now + self.step_min)
 
         # 3. Ingest new sensor events into KPI tracker
         new_events = self.infra.flush_step_buffer()
         self.kpi.ingest(new_events)
 
-        # 4. Compute global reward
-        r_global = self.kpi.global_reward(self.cfg["marl"]["reward_weights"])
+        # 4. Snapshot dock utilization for load-balancing reward
+        self.kpi.snapshot_utilization(self.terminals)
 
-        obs   = {a: self._obs(a)  for a in self.agents}
-        rews  = {a: self._rew(a, r_global) for a in self.agents}
-        dones = {a: self.sim.now >= self.cfg["demand"]["episode_end_min"]
-                  for a in self.agents}
-        trunc = {a: False for a in self.agents}
-        info  = {a: {"action_mask": self._mask(a)} for a in self.agents}
+        # 5. Compute global reward (shared component for all agents)
+        r_global = self.kpi.global_reward()
 
-        if all(dones.values()):
-            self.agents = []
-        return obs, rews, dones, trunc, info
+        # 6. Collect outputs
+        obs = {a: self._get_obs(a) for a in self.agents}
+        rews = {a: self._get_reward(a, r_global) for a in self.agents}
+        dones = {a: False for a in self.agents}
+        infos = {a: {"action_mask": self._get_mask(a)} for a in self.agents}
 
-    def _rew(self, agent, r_global):
-        r_priv = self._private_reward(agent)
+        # PettingZoo convention: empty agents list signals episode end.
+        # Episode is controlled externally by env.run(until=T) in train.py.
+        return obs, rews, dones, infos
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ACTIONS
+    # ─────────────────────────────────────────────────────────────────────────
+    def _apply_action(self, agent: str, action: int) -> None:
+        """Translate integer action into a DTP method call."""
+        if action == 0:
+            return    # no_op — valid for every agent
+
+        # ── Transporter ──────────────────────────────────────────────────────
+        if agent == "transporter":
+            # Actions 1..N_SLOT_ACTIONS map to booking the i-th available slot
+            # across all GHAs (flattened list, sorted by time)
+            all_slots = self._all_available_slots()
+            idx = action - 1    # action 1 → index 0
+            if idx < len(all_slots):
+                gha, slot_start = all_slots[idx]
+                # Find a truck that needs this GHA and has no booking there yet
+                truck = self._find_unbooking_truck(gha)
+                if truck:
+                    self.dtp.book_slot(gha, slot_start, truck.truck_id)
+                    truck.booked_slots[gha] = slot_start
+
+        # ── GHA ──────────────────────────────────────────────────────────────
+        elif agent in GHA_IDS:
+            # Action 1: publish next slot window
+            # Action 2: publish the slot window after that
+            next_windows = self._next_publishable_windows(gha)
+            idx = action - 1
+            if idx < len(next_windows):
+                self.dtp.publish_slot(gha, next_windows[idx])
+
+        # ── Orchestrator ─────────────────────────────────────────────────────
+        elif agent == "orchestrator":
+            # Actions encode (truck_index, gha_index) pairs
+            # action = truck_i * N_GHAS + gha_j + 1
+            action_idx = action - 1
+            truck_idx = action_idx // N_GHAS
+            gha_idx = action_idx %  N_GHAS
+            gha = GHA_IDS[gha_idx]
+
+            parked = self.tp3.get_parked_trucks()
+            if truck_idx < len(parked):
+                truck = parked[truck_idx]
+                self.tp3.release(truck.truck_id)
+                # If no booking exists for this GHA, book the next available
+                if gha not in truck.booked_slots:
+                    slots = self.dtp.get_available_slots(gha, horizon=120)
+                    if slots:
+                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id)
+                        truck.booked_slots[gha] = slots[0]
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OBSERVATION SPACE
+    # ─────────────────────────────────────────────────────────────────────────
+    def _get_obs(self, agent: str) -> np.ndarray:
+        """Build the observation vector for one agent."""
+        obs = np.zeros(self._obs_dim(agent), dtype=np.float32)
+        tod = (self.sim.now % 1440) / 1440    # time of day normalised
+
+        # ── Transporter ──────────────────────────────────────────────────────
+        if agent == "transporter":
+            i = 0
+            obs[i] = self.tp3.occupancy_ratio(); i += 1
+            obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
+            obs[i] = np.sin(2 * np.pi * tod); i += 1
+            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            # Available slot count per GHA (normalised by total docks)
+            for gha in GHA_IDS:
+                n_slots = len(self.dtp.get_available_slots(gha, horizon=120))
+                obs[i] = min(n_slots / params["gha"][gha]["total"], 1.0)
+                i += 1
+            # Export and import occupancy per GHA
+            for gha in GHA_IDS:
+                obs[i] = self.terminals[gha].exp_occupancy(); i += 1
+                obs[i] = self.terminals[gha].imp_occupancy(); i += 1
+
+        # ── GHA ───────────────────────────────────────────────────────────────
+        elif agent in GHA_IDS:
+            t = self.terminals[gha]
+            i = 0
+            obs[i] = t.exp_occupancy(); i += 1
+            obs[i] = t.imp_occupancy(); i += 1
+            obs[i] = t.exp_queue_norm(); i += 1
+            obs[i] = t.imp_queue_norm(); i += 1
+            obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
+            obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=90); i += 1
+            obs[i] = np.sin(2 * np.pi * tod); i += 1
+            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            obs[i] = self.tp3.occupancy_ratio(); i += 1
+            # Other GHAs' occupancies (context for load balancing)
+            for other in GHA_IDS:
+                if other != gha:
+                    obs[i] = self.terminals[other].exp_occupancy(); i += 1
+                    obs[i] = self.terminals[other].imp_occupancy(); i += 1
+
+        # ── Orchestrator ──────────────────────────────────────────────────────
+        elif agent == "orchestrator":
+            # Full global state: concatenation of all GHA obs + TP3 + time
+            i = 0
+            obs[i] = self.tp3.occupancy_ratio(); i += 1
+            obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
+            obs[i] = np.sin(2 * np.pi * tod); i += 1
+            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            for gha in GHA_IDS:
+                t = self.terminals[gha]
+                obs[i] = t.exp_occupancy(); i += 1
+                obs[i] = t.imp_occupancy(); i += 1
+                obs[i] = t.exp_queue_norm(); i += 1
+                obs[i] = t.imp_queue_norm(); i += 1
+                obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
+
+        return obs
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # MIX REWARDS
+    # ─────────────────────────────────────────────────────────────────────────
+    def _get_reward(self, agent: str, r_global: float) -> float:
+        """Mix private and global reward by alpha."""
         if agent == "orchestrator":
-            return r_global  # Orchestrator: global only
-        return (1 - self.alpha) * r_priv + self.alpha * r_global
+            return r_global    # Orchestrator has no private incentive
+
+        if agent == "transporter":
+            r_private = self.kpi.transporter_reward(self.dtp)
+        else:
+            gha = agent[4:]
+            r_private = self.kpi.gha_reward(gha, self.terminals[gha])
+
+        return (1 - self.alpha) * r_private + self.alpha * r_global
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # ILLEGAL ACTION MASKING
+    # ─────────────────────────────────────────────────────────────────────────
+    def _get_mask(self, agent: str) -> np.ndarray:
+        """1 = valid action, 0 = masked. Action 0 (no_op) is always valid."""
+        dim = self._action_dim(agent)
+        mask = np.zeros(dim, dtype=np.int8)
+        mask[0] = 1
+
+        if agent == "transporter":
+            for i, (gha, _) in enumerate(self._all_available_slots()):
+                if i + 1 < dim and self._find_unbooking_truck(gha):
+                    mask[i + 1] = 1
+
+        elif agent in GHA_IDS:
+            windows = self._next_publishable_windows(gha)
+            for i, _ in enumerate(windows):
+                if i + 1 < dim:
+                    mask[i + 1] = 1
+
+        elif agent == "orchestrator":
+            parked = self.tp3.get_parked_trucks()
+            for t_idx, _ in enumerate(parked):
+                for g_idx in range(N_GHAS):
+                    action = t_idx * N_GHAS + g_idx + 1
+                    if action < dim:
+                        mask[action] = 1
+
+        return mask
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SPACE DIMANSION HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+    def _obs_dim(self, agent: str) -> int:
+        if agent == "transporter":
+            # 4 (tp3+time) + N_GHAS (slot counts) + 2*N_GHAS (occupancies)
+            return 4 + N_GHAS + 2 * N_GHAS
+        elif agent in GHA_IDS:
+            # 9 own + 2*(N_GHAS-1) others
+            return 9 + 2 * (N_GHAS - 1)
+        elif agent == "orchestrator":
+            # 4 system + 5*N_GHAS per GHA
+            return 4 + 5 * N_GHAS
+        raise ValueError(f'Agent {agent} is unknown, please input a known agent')
+
+    def _action_dim(self, agent: str) -> int:
+        if agent == "transporter":
+            return N_SLOT_ACTIONS + 1
+        elif agent in GHA_IDS:
+            return 3    # no_op, publish_next, publish_one_after
+        elif agent == "orchestrator":
+            return N_TP3_ACTIONS * N_GHAS + 1
+        raise ValueError(f'Agent {agent} is unknown, please input a known agent')
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # PRIVATE HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+    def _prepopulate_slots(self) -> None:
+        """
+        Publish slots for all GHAs for the next 72h at episode start.
+        One slot per dock per 45-min window.
+        """
+        now = self.sim.now
+        slot_dur = params["booking"]["slot_duration"]
+        lead_time = params["booking"]["lead_time"]
+        freeze = params["booking"]["freeze_time"]
+
+        for gha in GHA_IDS:
+            n_docks = params["gha"][gha]["total"]
+            t = now + freeze    # start just outside the frozen window
+            while t <= now + lead_time:
+                for _ in range(n_docks):
+                    self.dtp.publish_slot(gha, t)
+                t += slot_dur
+
+    def _all_available_slots(self) -> List[tuple]:
+        """
+        Flat sorted list of (gha, slot_start) for all bookable slots.
+        Used to map Transporter action integers to concrete bookings.
+        """
+        result = []
+        for gha in GHA_IDS:
+            for slot in self.dtp.get_available_slots(gha, horizon=480):
+                result.append((gha, slot))
+        result.sort(key=lambda x: x[1])    # sort by time
+        return result[:N_SLOT_ACTIONS]
+
+    def _next_publishable_windows(self, gha: str) -> List[int]:
+        """Next two slot windows a GHA can publish right now."""
+        now = int(self.sim.now)
+        slot_dur = params["booking"]["slot_duration"]
+        freeze = params["booking"]["freeze_time"]
+        start = now + freeze
+        # Round up to next clean slot boundary
+        start = start + (slot_dur - start % slot_dur) % slot_dur
+        return [start, start + slot_dur]
+
+    def _find_unbooking_truck(self, gha: str) -> Optional[Truck]:
+        """
+        Find a parked TP3 truck that needs a booking at gha but has none.
+        Used by the Transporter action to assign a slot to a real truck.
+        """
+        for truck in self.tp3.get_parked_trucks():
+            needs_gha = any(s["gha"] == gha for s in truck.stops_remaining)
+            already_has = gha in truck.booked_slots
+            if needs_gha and not already_has:
+                return truck
+        return None

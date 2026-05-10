@@ -25,7 +25,7 @@ import os
 from typing import Dict, List, Optional
 
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 from env.infrastructure import CheckpointID, SensorEvent
 
 params = config.load_params()
@@ -59,6 +59,8 @@ class KPITracker:
             gha: {"export": [], "import": []}
             for gha in self._ghas
         }
+        
+        self._prev_proc: Dict[str, int] = {gha: 0 for gha in self._ghas}
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT INGESTION — called every MARL step by schiphol_env.py
@@ -164,14 +166,16 @@ class KPITracker:
         w = self.w
         util = (terminal.exp_occupancy() + terminal.imp_occupancy()) / 2
         q = terminal.exp_queue_norm() + terminal.imp_queue_norm()
-        proc = (
+        total_proc = (
             terminal.stats["export"]["processed"] +
             terminal.stats["import"]["processed"]
         )
+        delta_proc = total_proc - self._prev_proc[gha]
+        self._prev_proc[gha] = total_proc
         
         return (
             w["dock_util"] * util +
-            w["parcel_on_time"] * proc -
+            w["parcel_on_time"] * delta_proc -
             w["queue_per_step"] * q
         )
 

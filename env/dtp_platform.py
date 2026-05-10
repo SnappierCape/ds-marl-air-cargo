@@ -33,7 +33,7 @@ from typing import Dict, List, Optional
 import simpy
 
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 
 params = config.load_params()
 
@@ -72,7 +72,7 @@ class DTPPlatform:
         if slot_start - now < self.freeze_time:
             return False
 
-        n_docks = self.cfg["ghas"][gha]["total"]
+        n_docks = params["ghas"][gha]["total"]
         if self._taken_docks_at(gha, slot_start) >= n_docks:
             return False
 

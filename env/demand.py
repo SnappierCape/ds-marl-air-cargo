@@ -20,7 +20,7 @@ import simpy
 import numpy as np
 
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config
+import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform

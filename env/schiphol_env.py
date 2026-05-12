@@ -214,8 +214,8 @@ class SchipholCargoEnv(ParallelEnv):
             i = 0
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
-            obs[i] = np.sin(2 * np.pi * tod); i += 1
-            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
+            obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
             # Available slot count per GHA (normalised by total docks)
             for gha in GHA_IDS:
                 n_slots = len(self.dtp.get_available_slots(gha, horizon=120))
@@ -236,8 +236,8 @@ class SchipholCargoEnv(ParallelEnv):
             obs[i] = t.imp_queue_norm(); i += 1
             obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
             obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=90); i += 1
-            obs[i] = np.sin(2 * np.pi * tod); i += 1
-            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
+            obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             # Other GHAs' occupancies (context for load balancing)
             for other in GHA_IDS:
@@ -251,8 +251,8 @@ class SchipholCargoEnv(ParallelEnv):
             i = 0
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
-            obs[i] = np.sin(2 * np.pi * tod); i += 1
-            obs[i] = np.cos(2 * np.pi * tod); i += 1
+            obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
+            obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
             for gha in GHA_IDS:
                 t = self.terminals[gha]
                 obs[i] = t.exp_occupancy(); i += 1

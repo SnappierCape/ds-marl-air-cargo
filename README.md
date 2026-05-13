@@ -1,4 +1,4 @@
-# ✈️ SkySlot-MARL: Schiphol Air Cargo Optimization
+# ✈️ Multi-Agent Reinforcement Learning in Schiphol Airport Landside Cargo Logistics
 
 [![Project Status: Active](https://img.shields.io/badge/Project%20Status-Environment%20Complete-green.svg)]()
 [![Engine: SimPy](https://img.shields.io/badge/Engine-SimPy-blue.svg)]()

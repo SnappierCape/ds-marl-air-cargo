@@ -69,6 +69,8 @@ class DemandGenerator:
         self._travel_time = d["origin_travel_time"]
 
         self._truck_counter = 0
+        self.pending_trucks: List[Truck] = []
+        self._dispatch_events: Dict[str, simpy.Event] = {}
 
     # ─────────────────────────────────────────────────────────────────────────
     # ARRIVAL LOOP
@@ -89,7 +91,16 @@ class DemandGenerator:
             # Accept or reject based on current actual rate
             if np.random.random() < self._rate_at(self.env.now) / max_rate:
                 truck = self._create_truck()
-                self.env.process(self._truck_journey(truck))
+                
+                # Add to pending list so Transporter can see it
+                self.pending_trucks.append(truck)
+                
+                # Create the dispatch event
+                dispatch_event = self.env.event()
+                self._dispatch_events[truck.truck_id] = dispatch_event
+
+                # Start journey
+                self.env.process(self._truck_journey(truck, dispatch_event))
 
     def _rate_at(self, t: float) -> float:
         """
@@ -148,43 +159,67 @@ class DemandGenerator:
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # SLOT BOOKING LOGIC
+    # TRANSPORTER AGENT INTERFACE
     # ─────────────────────────────────────────────────────────────────────────
-    def _book_slots(self, truck: Truck) -> bool:
-        """Books one slot per GHA stop in manifest order. Enforces non-overlapping windows."""
-        _, max = self._travel_time[truck.origin_type]
-        earliest = self.env.now + max + self.dtp.freeze_time    # use max travel time to be conservative
+    def book_one_slot(self, truck_id: str, gha: str) -> bool:
+        """Called by the Transporter agent action handler in schiphol_env.py."""
+        truck = self._get_pending_truck(truck_id)
+        if truck is None:
+            return False
 
-        for stop in truck.manifest:
-            gha = stop["gha"]
-            available = self.dtp.get_available_slots(gha, horizon=480)
-            feasible = [s for s in available if s >= earliest]
+        # Truck must not already have a booking at this GHA
+        if gha in truck.booked_slots:
+            return False
 
-            if not feasible:
-                self._cancel_all(truck)
-                return False
+        # Truck must actually need this GHA
+        if not any(s["gha"] == gha for s in truck.stops_remaining):
+            return False
 
-            chosen = feasible[0]
-            if not self.dtp.book_slot(gha, chosen, truck.truck_id):
-                self._cancel_all(truck)
-                return False
+        # Earliest feasible start: after all existing bookings end + buffer
+        buffer = self._intra_airport_buffer()
+        earliest = self.env.now + self.dtp.freeze_time
+        if truck.booked_slots:
+            latest_booked_end = max(truck.booked_slots.values()) + self.dtp.slot_duration
+            earliest = max(earliest, latest_booked_end + buffer)
 
-            truck.booked_slots[gha] = chosen    # NOTE: does it not have to signal somebody else about the booking??
-            # Next slot must start after this one ends (plus intra-airport travel buffer)
-            earliest = chosen + self.dtp.slot_duration + self._intra_airport_buffer()
+        available = self.dtp.get_available_slots(gha, horizon=480)
+        feasible  = [s for s in available if s >= earliest]
+
+        if not feasible:
+            return False
+
+        return self.dtp.book_slot(gha, feasible[0], truck_id) and \
+            self._record_booking(truck, gha, feasible[0])
+
+    def dispatch_truck(self, truck_id: str) -> bool:
+        """
+        Called by the Transporter agent when it decides the truck is ready
+        to depart. All required GHA stops must be booked first.
+        """
+        truck = self._get_pending_truck(truck_id)
+        if truck is None:
+            return False
+
+        # Enforce: all stops must be booked before dispatch
+        needed_ghas = {s["gha"] for s in truck.manifest}
+        booked_ghas = set(truck.booked_slots.keys())
+        if not needed_ghas.issubset(booked_ghas):
+            return False
+
+        # Remove from pending list
+        self.pending_trucks = [t for t in self.pending_trucks if t.truck_id != truck_id]
+
+        # Fire the dispatch gate — the frozen journey process wakes up
+        event = self._dispatch_events.pop(truck_id, None)
+        if event:
+            event.succeed()
 
         return True
-
-    def _cancel_all(self, truck: Truck) -> None:
-        """Rollback all bookings made so far for this truck."""
-        for gha, slot_start in truck.booked_slots.items():
-            self.dtp.cancel_book(gha, slot_start, truck.truck_id)
-        truck.booked_slots.clear()
 
     # ─────────────────────────────────────────────────────────────────────────
     # TRUCK JOURNEY LOGIC
     # ─────────────────────────────────────────────────────────────────────────
-    def _truck_journey(self, truck: Truck):
+    def _truck_journey(self, truck: Truck, dispatch_event: simpy.Event):
         """
         SimPy generator: complete lifecycle of one truck.
 
@@ -195,9 +230,8 @@ class DemandGenerator:
         Stage 5 — Visit each GHA stop in slot-time order
         Stage 6 — Exit gate
         """
-        # ── Stage 1: Book slots ───────────────────────────────────────────────
-        if not self._book_slots(truck):
-            return
+        # ── Stage 1: Wait for Transporter to book ────────────────────────────
+        yield dispatch_event
 
         # ── Stage 2: Wait for departure time, then travel to gate ─────────────
         first_gha = min(truck.booked_slots, key=truck.booked_slots.get)
@@ -309,3 +343,13 @@ class DemandGenerator:
 
     def _intra_airport_buffer(self) -> float:
         return max(params["road"]["segments"].values())
+    
+    def _get_pending_truck(self, truck_id: str) -> Optional[Truck]:
+        for truck in self.pending_trucks:
+            if truck.truck_id == truck_id:
+                return truck
+        return None
+
+    def _record_booking(self, truck: Truck, gha: str, slot_start: int) -> bool:
+        truck.booked_slots[gha] = slot_start
+        return True

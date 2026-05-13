@@ -50,8 +50,12 @@ params = config.load_params()
 # Fixed constants
 N_SLOT_ACTIONS = 20    # max bookable slots visible to Transporter at any step
 N_TP3_ACTIONS = 10    # max trucks the Orchestrator can release per step
+N_PENDING_TRUCKS = 10    # max trucks the Transporter can process per step
 GHA_IDS = list(params["ghas"].keys())
 N_GHAS = len(GHA_IDS)
+N_BOOK_ACTIONS = N_PENDING_TRUCKS * N_GHAS
+N_DISPATCH_ACTIONS = N_PENDING_TRUCKS
+TRANSPORTER_ACTION_DIM = 1 + N_BOOK_ACTIONS + N_DISPATCH_ACTIONS
 
 # =============================================================================
 # MAIN CLASS
@@ -160,17 +164,24 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── Transporter ──────────────────────────────────────────────────────
         if agent == "transporter":
-            # Actions 1..N_SLOT_ACTIONS map to booking the i-th available slot
-            # across all GHAs (flattened list, sorted by time)
-            all_slots = self._all_available_slots()
-            idx = action - 1    # action 1 → index 0
-            if idx < len(all_slots):
-                gha, slot_start = all_slots[idx]
-                # Find a truck that needs this GHA and has no booking there yet
-                truck = self._find_unbooking_truck(gha)
-                if truck:
-                    self.dtp.book_slot(gha, slot_start, truck.truck_id)
-                    truck.booked_slots[gha] = slot_start
+            if 1 <= action <= N_BOOK_ACTIONS:
+                # Decode: which truck, which GHA
+                idx = action - 1
+                truck_idx = idx // N_GHAS
+                gha_idx = idx %  N_GHAS
+                gha = GHA_IDS[gha_idx]
+                pending = self.demand.pending_trucks
+                if truck_idx < len(pending):
+                    truck = pending[truck_idx]
+                    self.demand.book_one_slot(truck.truck_id, gha)
+
+            elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
+                # Decode: which truck to dispatch
+                truck_idx = action - N_BOOK_ACTIONS - 1
+                pending = self.demand.pending_trucks
+                if truck_idx < len(pending):
+                    truck = pending[truck_idx]
+                    self.demand.dispatch_truck(truck.truck_id)
 
         # ── GHA ──────────────────────────────────────────────────────────────
         elif agent in GHA_IDS:
@@ -225,6 +236,20 @@ class SchipholCargoEnv(ParallelEnv):
             for gha in GHA_IDS:
                 obs[i] = self.terminals[gha].exp_occupancy(); i += 1
                 obs[i] = self.terminals[gha].imp_occupancy(); i += 1
+
+            # Per-pending-truck features — gives agent context about its fleet
+            for t_idx in range(N_PENDING_TRUCKS):
+                pending = self.demand.pending_trucks
+                if t_idx < len(pending):
+                    truck = pending[t_idx]
+                    n_needed = len(truck.manifest)
+                    n_booked = len(truck.booked_slots)
+                    obs[i] = 1.0 if truck.flow_type == "export" else 0.0; i += 1
+                    obs[i] = n_booked / max(n_needed, 1); i += 1
+                    obs[i] = min(n_needed / 4, 1.0); i += 1
+                    obs[i] = min(self.sim.now / 1440, 1.0); i += 1
+                else:
+                    i += 4    # pad with zeros
 
         # ── GHA ───────────────────────────────────────────────────────────────
         elif agent in GHA_IDS:
@@ -288,9 +313,26 @@ class SchipholCargoEnv(ParallelEnv):
         mask[0] = 1
 
         if agent == "transporter":
-            for i, (gha, _) in enumerate(self._all_available_slots()):
-                if i + 1 < dim and self._find_unbooking_truck(gha):
-                    mask[i + 1] = 1
+            pending = self.demand.pending_trucks
+
+            # Book actions: valid if truck needs this GHA and has no booking there yet
+            for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
+                needed = {s["gha"] for s in truck.stops_remaining}
+                for g_idx, gha in enumerate(GHA_IDS):
+                    if gha in needed and gha not in truck.booked_slots:
+                        if self.dtp.get_available_slots(gha, horizon=480):
+                            action = t_idx * N_GHAS + g_idx + 1
+                            if action < dim:
+                                mask[action] = 1
+
+            # Dispatch actions: valid only if ALL stops for this truck are booked
+            for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
+                needed = {s["gha"] for s in truck.manifest}
+                booked = set(truck.booked_slots.keys())
+                if needed.issubset(booked):
+                    action = N_BOOK_ACTIONS + t_idx + 1
+                    if action < dim:
+                        mask[action] = 1
 
         elif agent in GHA_IDS:
             windows = self._next_publishable_windows(agent)
@@ -313,8 +355,8 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     def _obs_dim(self, agent: str) -> int:
         if agent == "transporter":
-            # 4 (tp3+time) + N_GHAS (slot counts) + 2*N_GHAS (occupancies)
-            return 4 + N_GHAS + 2 * N_GHAS
+            # 4 (tp3+time) + N_GHAS (slot counts) + 2*N_GHAS (occupancies) + N_PENDING_TRUCKS * 4 features
+            return 4 + N_GHAS + 2 * N_GHAS + 4 * N_PENDING_TRUCKS
         elif agent in GHA_IDS:
             # 9 own + 2*(N_GHAS-1) others
             return 9 + 2 * (N_GHAS - 1)
@@ -325,7 +367,7 @@ class SchipholCargoEnv(ParallelEnv):
 
     def _action_dim(self, agent: str) -> int:
         if agent == "transporter":
-            return N_SLOT_ACTIONS + 1
+            return TRANSPORTER_ACTION_DIM
         elif agent in GHA_IDS:
             return 3    # no_op, publish_next, publish_one_after
         elif agent == "orchestrator":

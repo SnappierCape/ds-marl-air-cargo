@@ -3,11 +3,15 @@ name = "marl-air-cargo"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
+    "benchmarl>=1.5.2",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
     "pettingzoo>=1.26.0",
     "pyyaml>=6.0.3",
     "simpy>=4.1.1",
+    "stable-baselines3>=2.8.0",
+    "torch>=2.11.0",
+    "torchrl>=0.11.1",
 ]

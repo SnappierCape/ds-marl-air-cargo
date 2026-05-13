@@ -27,6 +27,7 @@ from typing import Dict, List, Optional
 sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
 import config.config as config
 from env.infrastructure import CheckpointID, SensorEvent
+from env.dtp_platform import DTPPlatform
 
 params = config.load_params()
 
@@ -61,6 +62,9 @@ class KPITracker:
         }
         
         self._prev_proc: Dict[str, int] = {gha: 0 for gha in self._ghas}
+        self._prev_total_wait: float = 0.0
+        self._prev_no_shows: int = 0
+        self._prev_late: int = 0
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT INGESTION — called every MARL step by schiphol_env.py
@@ -154,12 +158,27 @@ class KPITracker:
         w = self.w
         return -(w["wpr_global"] * self.wpr() + w["util_std"] * self.utilization_std())
 
-    def transporter_reward(self, dtp) -> float:
+    def transporter_reward(self, dtp: DTPPlatform) -> float:
         w = self.w
+        
+        # Calculate current step wait
+        delta_wait = self._total_wait - self._prev_total_wait
+        
+        # No shows and late arrivals
+        current_no_shows = sum(dtp.no_shows.values())
+        delta_no_shows = current_no_shows - self._prev_no_shows
+        current_late = sum(dtp.late_arrivals.values())
+        delta_late = current_late - self._prev_late
+        
+        # Update trackers for the next step
+        self._prev_total_wait = self._total_wait
+        self._prev_no_shows = current_no_shows
+        self._prev_late = current_late
+        
         return -(
-            w["wait_per_min"] * self._total_wait +
-            w["no_show"] * sum(dtp.no_shows.values()) +
-            w["missed_slot"] * sum(dtp.late_arrivals.values())
+            w["wait_per_min"] * delta_wait +
+            w["no_show"] * delta_no_shows +
+            w["missed_slot"] * delta_late
         )
 
     def gha_reward(self, gha: str, terminal) -> float:    # NOTE: terminal should be a GHATerminal??

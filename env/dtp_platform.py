@@ -73,7 +73,7 @@ class DTPPlatform:
             return False
 
         n_docks = params["ghas"][gha]["total"]
-        if self._taken_docks_at(gha, slot_start) >= n_docks:
+        if self._total_published_at(gha, slot_start) >= n_docks:
             return False
 
         if slot_start not in self.registry[gha]:
@@ -304,5 +304,24 @@ class DTPPlatform:
                 count += sum(
                     1 for s in slots
                     if s["phase"] in ("booked", "docked")
+                )
+        return count
+
+    def _total_published_at(self, gha: str, new_start: int) -> int:
+        """
+        Counts all slots (available, booked, or docked) during the window.
+        This represents the total number of docks 'claimed' by the platform.
+        """
+        count = 0
+        new_end = new_start + self.slot_duration
+
+        for existing_start, slots in self.registry[gha].items():
+            existing_end = existing_start + self.slot_duration
+            
+            # Check for temporal overlap
+            if existing_start < new_end and new_start < existing_end:
+                count += sum(
+                    1 for s in slots
+                    if s["phase"] in ("available", "booked", "docked")
                 )
         return count

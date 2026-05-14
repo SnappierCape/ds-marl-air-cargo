@@ -55,6 +55,9 @@ This project implements a **Centralized Training, Decentralized Execution (CTDE)
 | **`demand.py`** | Stochastic arrival engine; manages the lifecycle and journey of every truck. |
 | **`infrastructure.py`** | The sensor layer; tracks ANPR events and timestamps for KPI calculation. |
 | **`kpi_tracker.py`** | Translates raw events into rewards (WPR, Turnaround Time, Utilization). |
+| **`road.py`** | Calculates intra-airport travel times between each node based on real-world distances. |
+| **`service_time.py`** | Applies log-normal random noise to the dock service time. |
+| **`schiphol_env.py`** | PettingZoo env wrapper to bridge with multiple MARL engines. |
 
 ---
 

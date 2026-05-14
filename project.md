@@ -6,14 +6,15 @@ The modules of this project follow these dependencies:
 
 ```plaintext
 PARENT             CHILD
------------------------------------------------------------------------------------------
-params         --> dtp_platform | infrastructure | demand | objects | road | service_time
-dtp_platform   --> objects | demand
-infrastructure --> objects | demand
-service_time   --> objects | demand
-road           --> demand
-objects        --> demand
-demand         --> None
+----------------------------------------------------------------------------------------------------------------------
+params         --> dtp_platform | infrastructure | demand | objects | road | service_time | kpi_tracker | schiphol_env
+dtp_platform   --> objects | demand | kpi_tracker | schiphol_env
+infrastructure --> objects | demand | kpi_tracker | schiphol_env
+service_time   --> objects | demand | schiphol_env
+road           --> demand | schiphol_env
+objects        --> demand | schiphol_env
+demand         --> schiphol_env
+kpi_tracker    --> schiphol_env
 ```
 
 ---
@@ -43,21 +44,28 @@ demand         --> None
 | _free_slot            | ─                | gha, slot_start, truck_id                        | bool       |
 | _set_phase            | ─                | gha, slot_start, truck_id, phase                 | None       | 
 | _is_docked            | ─                | gha, slot_start, truck_id                        | bool       |
-| _taken_docks_at       | ─                | gha, new_start                                   | int        | 
+| _taken_docks_at       | ─                | gha, new_start                                   | int        |
+| _total_published_at   | ─                | gha, new_start                                   | int        |
 
 ### Module: infrastructure
 
-| Method             | Called by  | Args                        | Returns          |
-|--------------------|------------|-----------------------------|------------------|
-| gate_in            | demand     | sim_time, truck             | None             |
-| gate_out           | demand     | sim_time, truck             | None             |
-| tp3_in             | objects    | sim_time, truck             | None             |
-| tp3_out            | objects    | sim_time, truck             | None             |
-| gha_in             | objects    | sim_time, truck, gha        | None             |
-| dock_start         | objects    | sim_time, truck, gha, dock_id | None           |
-| dock_end           | objects    | sim_time, truck, gha, dock_id | None           |
-| flush_step_buffer  | env        | —                           | List[SensorEvent]|
-| get_all_events     | kpi_tracker| —                          | List[SensorEvent]|
+*CheckpointID* None
+
+*SensorEvent* None
+
+*InfrastructureLayer*
+| Method             | Called by    | Args                             | Returns           |
+|--------------------|--------------|----------------------------------|-------------------|
+| _log               | ─            | event                            | None              |
+| gate_in            | demand       | sim_time, truck                  | None              |
+| gate_out           | demand       | sim_time, truck                  | None              |
+| tp3_in             | objects      | sim_time, truck                  | None              |
+| tp3_out            | objects      | sim_time, truck                  | None              |
+| gha_in             | objects      | sim_time, truck, gha_id          | None              |
+| dock_start         | objects      | sim_time, truck, gha_id, dock_id | None              |
+| dock_end           | objects      | sim_time, truck, gha_id, dock_id | None              |
+| flush_step_buffer  | schiphol_env | —                                | List[SensorEvent] |
+| get_all_events     | kpi_tracker  | —                                | List[SensorEvent] |
 
 ### Module: objects
 

@@ -67,9 +67,9 @@ class DTPPlatform:
         now = self.env.now
         if slot_start <= now:
             return False
-        if slot_start - now > self.lead_time:
+        if slot_start - now >= self.lead_time:
             return False
-        if slot_start - now < self.freeze_time:
+        if slot_start - now <= self.freeze_time:
             return False
 
         n_docks = params["ghas"][gha]["total"]

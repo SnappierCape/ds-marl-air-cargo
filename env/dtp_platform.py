@@ -43,11 +43,11 @@ params = config.load_params()
 class DTPPlatform:
     def __init__(self, env: simpy.Environment, cfg: Dict = params):
         self.env = env
-        rules = cfg["dtp_rules"]
-        self.slot_duration = rules["slot_duration"]
-        self.priority_window = rules["priority_window"]
-        self.freeze_time = rules["freeze_time"]
-        self.lead_time = rules["lead_time"]
+        self.cfg = cfg
+        self.slot_duration = cfg["dtp_rules"]["slot_duration"]
+        self.priority_window = cfg["dtp_rules"]["priority_window"]
+        self.freeze_time = cfg["dtp_rules"]["freeze_time"]
+        self.lead_time = cfg["dtp_rules"]["lead_time"]
 
         # Registry initialised with one empty dict per known GHA
         self.registry: Dict[str, Dict[int, List[Dict]]] = {
@@ -55,11 +55,11 @@ class DTPPlatform:
         }
 
         # Penalty counters — read by reward functions in schiphol_env.py
-        self.no_shows: Dict[str, int] = {}  # {truck_id: count}
-        self.late_arrivals: Dict[str, int] = {}  # {truck_id: count}
+        self.no_shows: Dict[str, int] = {}    # {truck_id: count}
+        self.late_arrivals: Dict[str, int] = {}    # {truck_id: count}
 
     # ─────────────────────────────────────────────────────────────────────────
-    # SLOT PUBLICATION — called by demand.py at episode start
+    # SLOT PUBLICATION
     # ─────────────────────────────────────────────────────────────────────────
     def publish_slot(self, gha: str, slot_start: int) -> bool:
         self._validate_gha(gha)
@@ -85,7 +85,7 @@ class DTPPlatform:
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
-    # BOOKING — Transporter books, Orchestrator has separate path
+    # BOOKING
     # ─────────────────────────────────────────────────────────────────────────
     def book_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
         self._validate_gha(gha)
@@ -123,11 +123,11 @@ class DTPPlatform:
     # ─────────────────────────────────────────────────────────────────────────
     def orch_modify_book(
         self,
-        truck_id:   str,
-        from_gha:   str,
+        truck_id: str,
+        from_gha: str,
         from_start: int,
-        to_gha:     str,
-        to_start:   int,
+        to_gha: str,
+        to_start: int,
     ) -> bool:
         """
         Orchestrator moves a booking to a different slot or GHA.
@@ -155,7 +155,7 @@ class DTPPlatform:
     # ─────────────────────────────────────────────────────────────────────────
     def get_slot_phase(
         self,
-        slot_start:   Optional[int],
+        slot_start: Optional[int],
         arrival_time: float,
         dock_is_free: bool,
     ) -> str:
@@ -253,7 +253,7 @@ class DTPPlatform:
     # PRIVATE HELPERS
     # ─────────────────────────────────────────────────────────────────────────
     def _validate_gha(self, gha: str) -> None:
-        if gha not in self.registry:
+        if gha not in self.cfg["ghas"].keys():
             raise ValueError(f'Unknown GHA: "{gha}". Please input valid GHA.')
 
     def _assign_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:

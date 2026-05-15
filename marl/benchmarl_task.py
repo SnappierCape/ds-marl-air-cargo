@@ -3,7 +3,7 @@
 # =============================================================================
 # DESCRIPTION:
 #     Registers the Schiphol simulation as a BenchMARL Task.
-#     BenchMARL wraps your PettingZoo env through TorchRL's PettingZooWrapper.
+#     BenchMARL wraps PettingZoo env through TorchRL's PettingZooWrapper.
 #
 # STRUCTURE:
 #     SchipholTask (Enum)  — one entry per scenario (M and MO)
@@ -11,13 +11,9 @@
 #
 # HOW BENCHMARL USES THIS:
 #     1. Experiment calls task.get_env_fun() to get a factory function
-#     2. Factory returns a TorchRL-compatible env built from your PettingZoo env
+#     2. Factory returns a TorchRL-compatible env built from PettingZoo env
 #     3. BenchMARL runs MAPPO rollouts against that env
 #     4. All logging, checkpointing, and evaluation handled automatically
-#
-# USAGE:
-#     from benchmarl_task import SchipholTask
-#     task = SchipholTask.SCENARIO_M.get_from_yaml()
 # =============================================================================
 import sys
 import os
@@ -60,10 +56,10 @@ class SchipholTask(Task):
         task = SchipholTask.SCENARIO_M.get_from_yaml()
         task = SchipholTask.SCENARIO_MO.get_from_yaml()
     """
-    SCENARIO_M  = None    # filled by enum machinery, see __new__
+    SCENARIO_M = None
     SCENARIO_MO = None
 
-    # ── BenchMARL required: environment factory ───────────────────────────────
+    # ── BenchMARL required: environment factory ──────────────────────────────
     def get_env_fun(
         self,
         seed: Optional[int],
@@ -84,7 +80,7 @@ class SchipholTask(Task):
             # categorical_actions=True because our action spaces are Discrete
             torchrl_env = PettingZooWrapper(
                 env=pz_env,
-                use_mask=True,           # pass action masks through to MAPPO
+                use_mask=True,    # pass action masks through to MAPPO
                 categorical_actions=True,
                 device=device,
                 seed=seed,
@@ -104,63 +100,34 @@ class SchipholTask(Task):
 
         return make_env
 
-    # ── BenchMARL required: capability flags ──────────────────────────────────
+    # ── BenchMARL required: capability flags ─────────────────────────────────
     def supports_continuous_actions(self) -> bool:
-        return False    # all action spaces are Discrete
+        return False
 
     def supports_discrete_actions(self) -> bool:
         return True
 
     def has_render(self, env: EnvBase) -> bool:
-        return False    # no visual rendering
+        return False
 
     def max_steps(self, env: EnvBase) -> int:
-        """Episode length in steps."""
         return self.config.max_steps
 
-    # ── BenchMARL required: agent grouping ────────────────────────────────────
+    # ── BenchMARL required: agent grouping ───────────────────────────────────
     def group_map(self, env: EnvBase) -> Dict[str, List[str]]:
-        """
-        Maps group names to lists of agent names.
-
-        BenchMARL uses groups to determine which agents share policy networks,
-        losses, and replay buffers. We put all agents in one group ("agents")
-        so they share the same MAPPO policy — this is the standard setup for
-        cooperative MARL and for mixed settings where you want a single
-        unified policy to emerge.
-
-        If you wanted the Orchestrator to have a completely separate policy
-        architecture, you would put it in its own group here. For now, one
-        group keeps things simple and comparable across scenarios.
-        """
         return {"agents": env.possible_agents}
 
-    # ── BenchMARL required: observation spec ──────────────────────────────────
+    # ── BenchMARL required: obs-action-state specs ───────────────────────────
     def observation_spec(self, env: EnvBase):
-        """
-        Returns the observation spec as seen by BenchMARL.
-        TorchRL/PettingZooWrapper builds this automatically from your
-        PettingZoo observation_space() declarations — no manual work needed.
-        """
         return env.observation_spec
 
-    # ── BenchMARL required: action spec ───────────────────────────────────────
     def action_spec(self, env: EnvBase):
-        """
-        Returns the action spec. Again built automatically by PettingZooWrapper.
-        """
         return env.full_action_spec
 
-    # ── BenchMARL required: state spec (for centralized critic) ───────────────
     def state_spec(self, env: EnvBase):
-        """
-        Global state spec used by MAPPO's centralized critic.
-        We return None here and let BenchMARL concatenate agent observations
-        into the global state automatically — the standard CTDE approach.
-        """
         return None
 
-    # ── BenchMARL required: config class ──────────────────────────────────────
+    # ── BenchMARL required: config class ─────────────────────────────────────
     @staticmethod
     def associated_class():
         """Links this Task to its configuration dataclass."""

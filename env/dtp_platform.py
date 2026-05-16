@@ -26,16 +26,12 @@
 #     "no_show"            →  arrived after slot expiry
 #     "unbooked"           →  truck has no booking for this GHA
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional
 
 import simpy
 
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
-
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # DTP PLATFORM

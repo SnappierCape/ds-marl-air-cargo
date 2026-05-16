@@ -12,22 +12,18 @@
 #     infrastructure → gate_in / gate_out ANPR events
 #     road           → travel time samples at every leg
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional
 
 import simpy
 import numpy as np
-
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
 from env.infrastructure import InfrastructureLayer
 from env.road import RoadNetwork
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # MAIN CLASS

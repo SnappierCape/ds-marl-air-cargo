@@ -10,16 +10,12 @@
 # NOISE DISTRIBUTION:
 #     The chosen distribution for the noise is a lognormal distribution.
 # =============================================================================
-import sys
-import os
-import numpy as np
 from typing import Dict
 
-# Setting base path for local imports
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
+import numpy as np
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # ROAD MODEL

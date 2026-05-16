@@ -157,7 +157,7 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     # ACTIONS
     # ─────────────────────────────────────────────────────────────────────────
-    def _apply_action(self, agent: str, action: int) -> None:
+    def _apply_action(self, agent: str, action: int, flow_type: Optional[str]) -> None:
         """Translate integer action into a DTP method call."""
         if action == 0:
             return    # no_op — valid for every agent
@@ -173,7 +173,7 @@ class SchipholCargoEnv(ParallelEnv):
                 pending = self.demand.pending_trucks
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
-                    self.demand.book_one_slot(truck.truck_id, gha)
+                    self.demand.book_one_slot(truck.truck_id, gha, flow_type)
 
             elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
                 # Decode: which truck to dispatch
@@ -190,7 +190,8 @@ class SchipholCargoEnv(ParallelEnv):
             next_windows = self._next_publishable_windows(agent)
             idx = action - 1
             if idx < len(next_windows):
-                self.dtp.publish_slot(agent, next_windows[idx])
+                for flow_type in ("import", "export"):
+                    self.dtp.publish_slot(agent, next_windows[idx], flow_type)
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
@@ -207,9 +208,9 @@ class SchipholCargoEnv(ParallelEnv):
                 self.tp3.release(truck.truck_id)
                 # If no booking exists for this GHA, book the next available
                 if gha not in truck.booked_slots:
-                    slots = self.dtp.get_available_slots(gha, horizon=120)
+                    slots = self.dtp.get_available_slots(gha, flow_type, horizon=120)
                     if slots:
-                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id)
+                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, flow_type)
                         truck.booked_slots[gha] = slots[0]
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -388,12 +389,13 @@ class SchipholCargoEnv(ParallelEnv):
         freeze = params["dtp_rules"]["freeze_time"]
 
         for gha in GHA_IDS:
-            n_docks = params["ghas"][gha]["total"]
-            t = now + freeze    # start just outside the frozen window
-            while t <= now + lead_time:
-                for _ in range(n_docks):
-                    self.dtp.publish_slot(gha, t)
-                t += slot_dur
+            for flow_type in ("import", "export"):    # hardcoded
+                n_docks = params["ghas"][gha][flow_type]
+                t = now + freeze    # start just outside the frozen window
+                while t <= now + lead_time:
+                    for _ in range(n_docks):
+                        self.dtp.publish_slot(gha, t, flow_type)
+                    t += slot_dur
 
     def _all_available_slots(self) -> List[tuple]:
         """

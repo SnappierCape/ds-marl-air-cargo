@@ -161,7 +161,7 @@ class DemandGenerator:
     # ─────────────────────────────────────────────────────────────────────────
     # TRANSPORTER AGENT INTERFACE
     # ─────────────────────────────────────────────────────────────────────────
-    def book_one_slot(self, truck_id: str, gha: str) -> bool:
+    def book_one_slot(self, truck_id: str, gha: str, flow_type: str) -> bool:
         """Called by the Transporter agent action handler in schiphol_env.py."""
         truck = self._get_pending_truck(truck_id)
         if truck is None:
@@ -182,13 +182,13 @@ class DemandGenerator:
             latest_booked_end = max(truck.booked_slots.values()) + self.dtp.slot_duration
             earliest = max(earliest, latest_booked_end + buffer)
 
-        available = self.dtp.get_available_slots(gha, horizon=480)
+        available = self.dtp.get_available_slots(gha, horizon=480, flow_type=truck.flow_type)
         feasible  = [s for s in available if s >= earliest]
 
         if not feasible:
             return False
 
-        return self.dtp.book_slot(gha, feasible[0], truck_id) and \
+        return self.dtp.book_slot(gha, feasible[0], truck_id, truck.flow_type) and \
             self._record_booking(truck, gha, feasible[0])
 
     def dispatch_truck(self, truck_id: str) -> bool:

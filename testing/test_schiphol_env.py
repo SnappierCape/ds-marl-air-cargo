@@ -359,3 +359,79 @@ for gha in GHA_IDS:
             violations += 1
 
 print(f"  {PASS if violations == 0 else FAIL}  no published slots inside freeze window: {violations} violations")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [17] action space declared dimensions match actual logic
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[17] action space dimensions match expected values")
+
+env, _, _ = make_env(orch=True)
+
+expected_trans = TRANSPORTER_ACTION_DIM
+actual_trans   = env.action_space("transporter").n
+print(f"  {PASS if actual_trans == expected_trans else FAIL}  transporter action_dim={actual_trans} (expected {expected_trans})")
+
+for gha in GHA_IDS:
+    dim = env.action_space(gha).n
+    print(f"  {PASS if dim == 3 else FAIL}  {gha} action_dim=3: {dim}")
+
+orch_expected = N_TP3_ACTIONS * N_GHAS + 1
+orch_actual   = env.action_space("orchestrator").n
+print(f"  {PASS if orch_actual == orch_expected else FAIL}  orchestrator action_dim={orch_actual} (expected {orch_expected})")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [18] consecutive resets produce clean independent state
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[18] consecutive resets produce clean state")
+
+env = SchipholCargoEnv()
+for trial in range(3):
+    obs, infos = env.reset()
+    # run a few steps
+    for _ in range(20):
+        actions = {a: masked_random_action(env.action_space(a), infos[a]["action_mask"])
+                   for a in env.agents}
+        obs, _, _, infos = env.step(actions)
+    t_after = env.sim.now
+    obs2, infos2 = env.reset()
+    t_reset = env.sim.now
+    kpi_reset = env.kpi._n_completed
+
+    # sim time resets to 0
+    print(f"  {PASS if t_reset == 0 else FAIL}  trial {trial}: sim resets to t=0 (was t={t_after:.0f})")
+    print(f"  {PASS if kpi_reset == 0 else FAIL}  trial {trial}: kpi tracker cleared (n_completed={kpi_reset})")
+
+    # observations valid after reset
+    valid = all(
+        obs2[a].shape[0] == env.observation_space(a).shape[0] and
+        np.all(obs2[a] >= 0) and np.all(obs2[a] <= 1)
+        for a in env.agents
+    )
+    print(f"  {PASS if valid else FAIL}  trial {trial}: observations valid after reset")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [19] KPI tracker integrated: completed trucks increment after full episodes
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[19] KPI tracker integrates real simulation: trucks complete over time")
+
+env, obs, infos = make_env()
+n_before = env.kpi._n_completed
+# run 1440 steps (1 simulated day)
+for _ in range(1440):
+    actions = {a: masked_random_action(env.action_space(a), infos[a]["action_mask"])
+               for a in env.agents}
+    obs, _, _, infos = env.step(actions)
+
+n_after = env.kpi._n_completed
+trucks_generated = env.demand._truck_counter
+print(f"  {PASS if n_after > n_before else FAIL}  completed trucks > 0 after 1440 steps: n_completed={n_after}")
+print(f"  {PASS if trucks_generated > 0 else FAIL}  trucks were generated: {trucks_generated}")
+print(f"  {PASS if env.kpi.wpr() >= 0 else FAIL}  wpr >= 0: {env.kpi.wpr():.4f}")
+print(f"  {PASS if env.kpi.nttp() >= 0 else FAIL}  nttp >= 0: {env.kpi.nttp():.4f}")
+
+summary = env.kpi.summary()
+print(f"  {PASS if summary['n_completed'] == n_after else FAIL}  summary consistent with tracker: {summary['n_completed']}")
+
+print("\n" + "=" * 65)
+print("  SchipholCargoEnv tests complete")
+print("=" * 65)

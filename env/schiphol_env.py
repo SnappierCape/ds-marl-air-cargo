@@ -25,17 +25,12 @@
 #                    0 = no_op
 #                    else = complete control over trucks and docks except for already docked trucks
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional, Tuple
 
 import simpy
 import numpy as np
 import gymnasium as gym
 from pettingzoo import ParallelEnv
-
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
@@ -45,9 +40,10 @@ from env.road import RoadNetwork
 from env.demand import DemandGenerator
 from env.kpi_tracker import KPITracker
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
-# Fixed constants
+# ── Fixed constants ──────────────────────────────────────────────────────────
 N_SLOT_ACTIONS = 20    # max bookable slots visible to Transporter at any step
 N_TP3_ACTIONS = 10    # max trucks the Orchestrator can release per step
 N_PENDING_TRUCKS = 10    # max trucks the Transporter can process per step

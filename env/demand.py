@@ -138,6 +138,7 @@ class DemandGenerator:
             p=list(self._orig_split.values())
         )
         n_stops = np.random.choice([1, 2, 3, 4], p=self._multi_stop)
+        n_stops = min(n_stops, len(self.GHA_IDS))
         ghas = np.random.choice(self.GHA_IDS, size=n_stops, replace=False)
 
         manifest = [

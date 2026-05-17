@@ -331,7 +331,7 @@ class SchipholCargoEnv(ParallelEnv):
 
             # Dispatch actions: valid only if ALL stops for this truck are booked
             for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
-                needed = {s["gha"] for s in truck.manifest}
+                needed = {s["gha"] for s in truck.stops_remaining}
                 booked = set(truck.booked_slots.keys())
                 if needed.issubset(booked):
                     action = N_BOOK_ACTIONS + t_idx + 1

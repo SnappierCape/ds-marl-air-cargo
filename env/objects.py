@@ -6,20 +6,17 @@
 #     Owns all physical logistics that takes simulated time.
 #     Knows nothing about MARL, rewards, or routing policies.
 # =============================================================================
-import sys
-import os
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from dataclasses import dataclass, field
 
 import simpy
 
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 from env.infrastructure import InfrastructureLayer
 from env.dtp_platform import DTPPlatform
 from env.service_time import ServiceTimeModel
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # TRUCK

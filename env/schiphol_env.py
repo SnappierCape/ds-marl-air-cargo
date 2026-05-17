@@ -25,17 +25,12 @@
 #                    0 = no_op
 #                    else = complete control over trucks and docks except for already docked trucks
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional, Tuple
 
 import simpy
 import numpy as np
 import gymnasium as gym
 from pettingzoo import ParallelEnv
-
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
@@ -45,9 +40,10 @@ from env.road import RoadNetwork
 from env.demand import DemandGenerator
 from env.kpi_tracker import KPITracker
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
-# Fixed constants
+# ── Fixed constants ──────────────────────────────────────────────────────────
 N_SLOT_ACTIONS = 20    # max bookable slots visible to Transporter at any step
 N_TP3_ACTIONS = 10    # max trucks the Orchestrator can release per step
 N_PENDING_TRUCKS = 10    # max trucks the Transporter can process per step
@@ -173,7 +169,7 @@ class SchipholCargoEnv(ParallelEnv):
                 pending = self.demand.pending_trucks
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
-                    self.demand.book_one_slot(truck.truck_id, gha)
+                    self.demand.book_one_slot(truck.truck_id, gha, truck.flow_type)
 
             elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
                 # Decode: which truck to dispatch
@@ -187,10 +183,11 @@ class SchipholCargoEnv(ParallelEnv):
         elif agent in GHA_IDS:
             # Action 1: publish next slot window
             # Action 2: publish the slot window after that
-            next_windows = self._next_publishable_windows(agent)
+            next_windows = self._next_publishable_windows()
             idx = action - 1
             if idx < len(next_windows):
-                self.dtp.publish_slot(agent, next_windows[idx])
+                for flow_type in ("import", "export"):
+                    self.dtp.publish_slot(agent, next_windows[idx], flow_type)
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
@@ -207,9 +204,9 @@ class SchipholCargoEnv(ParallelEnv):
                 self.tp3.release(truck.truck_id)
                 # If no booking exists for this GHA, book the next available
                 if gha not in truck.booked_slots:
-                    slots = self.dtp.get_available_slots(gha, horizon=120)
+                    slots = self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
                     if slots:
-                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id)
+                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, truck.flow_type)
                         truck.booked_slots[gha] = slots[0]
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -227,11 +224,17 @@ class SchipholCargoEnv(ParallelEnv):
             obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
             obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
             obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
+            
             # Available slot count per GHA (normalised by total docks)
             for gha in GHA_IDS:
-                n_slots = len(self.dtp.get_available_slots(gha, horizon=120))
-                obs[i] = min(n_slots / params["ghas"][gha]["total"], 1.0)
+                n_slots_exp = len(self.dtp.get_available_slots(gha, "export", horizon=120))
+                obs[i] = min(n_slots_exp / params["ghas"][gha]["export"], 1.0)
                 i += 1
+                
+                n_slots_imp = len(self.dtp.get_available_slots(gha, "import", horizon=120))
+                obs[i] = min(n_slots_imp / params["ghas"][gha]["import"], 1.0)
+                i += 1
+                
             # Export and import occupancy per GHA
             for gha in GHA_IDS:
                 obs[i] = self.terminals[gha].exp_occupancy(); i += 1
@@ -320,7 +323,7 @@ class SchipholCargoEnv(ParallelEnv):
                 needed = {s["gha"] for s in truck.stops_remaining}
                 for g_idx, gha in enumerate(GHA_IDS):
                     if gha in needed and gha not in truck.booked_slots:
-                        if self.dtp.get_available_slots(gha, horizon=480):
+                        if self.dtp.get_available_slots(gha, truck.flow_type, horizon=480):
                             action = t_idx * N_GHAS + g_idx + 1
                             if action < dim:
                                 mask[action] = 1
@@ -335,15 +338,25 @@ class SchipholCargoEnv(ParallelEnv):
                         mask[action] = 1
 
         elif agent in GHA_IDS:
-            windows = self._next_publishable_windows(agent)
+            windows = self._next_publishable_windows()
             for i, _ in enumerate(windows):
                 if i + 1 < dim:
                     mask[i + 1] = 1
 
         elif agent == "orchestrator":
             parked = self.tp3.get_parked_trucks()
-            for t_idx, _ in enumerate(parked):
-                for g_idx in range(N_GHAS):
+            for t_idx, truck in enumerate(parked[:N_TP3_ACTIONS]):
+                for g_idx, gha in enumerate(GHA_IDS):
+                    # condition 1: truck actually needs to visit this GHA
+                    needs_gha = any(s["gha"] == gha for s in truck.stops_remaining)
+                    if not needs_gha:
+                        continue
+                    # condition 2: at least one slot of the truck's flow_type exists
+                    has_slots = bool(
+                        self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
+                    )
+                    if not has_slots:
+                        continue
                     action = t_idx * N_GHAS + g_idx + 1
                     if action < dim:
                         mask[action] = 1
@@ -355,8 +368,8 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     def _obs_dim(self, agent: str) -> int:
         if agent == "transporter":
-            # 4 (tp3+time) + N_GHAS (slot counts) + 2*N_GHAS (occupancies) + N_PENDING_TRUCKS * 4 features
-            return 4 + N_GHAS + 2 * N_GHAS + 4 * N_PENDING_TRUCKS
+            # 4 (tp3+time) + 2*N_GHAS (slot counts imp+exp) + 2*N_GHAS (occupancies imp+exp) + N_PENDING_TRUCKS * 4 features
+            return 4 + 2 * N_GHAS + 2 * N_GHAS + 4 * N_PENDING_TRUCKS
         elif agent in GHA_IDS:
             # 9 own + 2*(N_GHAS-1) others
             return 9 + 2 * (N_GHAS - 1)
@@ -388,43 +401,20 @@ class SchipholCargoEnv(ParallelEnv):
         freeze = params["dtp_rules"]["freeze_time"]
 
         for gha in GHA_IDS:
-            n_docks = params["ghas"][gha]["total"]
-            t = now + freeze    # start just outside the frozen window
-            while t <= now + lead_time:
-                for _ in range(n_docks):
-                    self.dtp.publish_slot(gha, t)
-                t += slot_dur
+            for flow_type in ("import", "export"):    # hardcoded
+                n_docks = params["ghas"][gha][flow_type]
+                t = now + freeze + 1    # start just outside the frozen window
+                while t <= now + lead_time:
+                    for _ in range(n_docks):
+                        self.dtp.publish_slot(gha, t, flow_type)
+                    t += slot_dur
 
-    def _all_available_slots(self) -> List[tuple]:
-        """
-        Flat sorted list of (gha, slot_start) for all bookable slots.
-        Used to map Transporter action integers to concrete bookings.
-        """
-        result = []
-        for gha in GHA_IDS:
-            for slot in self.dtp.get_available_slots(gha, horizon=480):
-                result.append((gha, slot))
-        result.sort(key=lambda x: x[1])    # sort by time
-        return result[:N_SLOT_ACTIONS]
-
-    def _next_publishable_windows(self, gha: str) -> List[int]:
+    def _next_publishable_windows(self) -> List[int]:
         """Next two slot windows a GHA can publish right now."""
         now = int(self.sim.now)
         slot_dur = params["dtp_rules"]["slot_duration"]
         freeze = params["dtp_rules"]["freeze_time"]
-        start = now + freeze
+        start = now + freeze + 1
         # Round up to next clean slot boundary
         start = start + (slot_dur - start % slot_dur) % slot_dur
         return [start, start + slot_dur]
-
-    def _find_unbooking_truck(self, gha: str) -> Optional[Truck]:
-        """
-        Find a parked TP3 truck that needs a booking at gha but has none.
-        Used by the Transporter action to assign a slot to a real truck.
-        """
-        for truck in self.tp3.get_parked_trucks():
-            needs_gha = any(s["gha"] == gha for s in truck.stops_remaining)
-            already_has = gha in truck.booked_slots
-            if needs_gha and not already_has:
-                return truck
-        return None

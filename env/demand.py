@@ -12,22 +12,18 @@
 #     infrastructure → gate_in / gate_out ANPR events
 #     road           → travel time samples at every leg
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional
 
 import simpy
 import numpy as np
-
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 
 from env.objects import Truck, GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
 from env.infrastructure import InfrastructureLayer
 from env.road import RoadNetwork
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # MAIN CLASS
@@ -142,6 +138,7 @@ class DemandGenerator:
             p=list(self._orig_split.values())
         )
         n_stops = np.random.choice([1, 2, 3, 4], p=self._multi_stop)
+        n_stops = min(n_stops, len(self.GHA_IDS))
         ghas = np.random.choice(self.GHA_IDS, size=n_stops, replace=False)
 
         manifest = [
@@ -161,7 +158,7 @@ class DemandGenerator:
     # ─────────────────────────────────────────────────────────────────────────
     # TRANSPORTER AGENT INTERFACE
     # ─────────────────────────────────────────────────────────────────────────
-    def book_one_slot(self, truck_id: str, gha: str) -> bool:
+    def book_one_slot(self, truck_id: str, gha: str, flow_type: str) -> bool:
         """Called by the Transporter agent action handler in schiphol_env.py."""
         truck = self._get_pending_truck(truck_id)
         if truck is None:
@@ -182,13 +179,13 @@ class DemandGenerator:
             latest_booked_end = max(truck.booked_slots.values()) + self.dtp.slot_duration
             earliest = max(earliest, latest_booked_end + buffer)
 
-        available = self.dtp.get_available_slots(gha, horizon=480)
+        available = self.dtp.get_available_slots(gha, horizon=480, flow_type=truck.flow_type)
         feasible  = [s for s in available if s >= earliest]
 
         if not feasible:
             return False
 
-        return self.dtp.book_slot(gha, feasible[0], truck_id) and \
+        return self.dtp.book_slot(gha, feasible[0], truck_id, truck.flow_type) and \
             self._record_booking(truck, gha, feasible[0])
 
     def dispatch_truck(self, truck_id: str) -> bool:

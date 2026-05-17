@@ -26,16 +26,12 @@
 #     "no_show"            →  arrived after slot expiry
 #     "unbooked"           →  truck has no booking for this GHA
 # =============================================================================
-import sys
-import os
 from typing import Dict, List, Optional
 
 import simpy
 
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
-
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # DTP PLATFORM
@@ -61,7 +57,7 @@ class DTPPlatform:
     # ─────────────────────────────────────────────────────────────────────────
     # SLOT PUBLICATION
     # ─────────────────────────────────────────────────────────────────────────
-    def publish_slot(self, gha: str, slot_start: int) -> bool:
+    def publish_slot(self, gha: str, slot_start: int, flow_type: str) -> bool:
         self._validate_gha(gha)
 
         now = self.env.now
@@ -72,32 +68,32 @@ class DTPPlatform:
         if slot_start - now <= self.freeze_time:
             return False
 
-        n_docks = params["ghas"][gha]["total"]
-        if self._total_published_at(gha, slot_start) >= n_docks:
+        n_docks = self.cfg["ghas"][gha][flow_type]
+        if self._total_published_at(gha, slot_start, flow_type) >= n_docks:
             return False
 
         if slot_start not in self.registry[gha]:
             self.registry[gha][slot_start] = []
 
         self.registry[gha][slot_start].append(
-            {"truck_id": None, "phase": "available"}
+            {"truck_id": None, "phase": "available", "flow_type": flow_type}
         )
         return True
 
     # ─────────────────────────────────────────────────────────────────────────
     # BOOKING
     # ─────────────────────────────────────────────────────────────────────────
-    def book_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
+    def book_slot(self, gha: str, slot_start: int, truck_id: str, flow_type: str) -> bool:
         self._validate_gha(gha)
 
         if slot_start - self.env.now < self.freeze_time:
             return False
 
-        return self._assign_slot(gha, slot_start, truck_id)
+        return self._assign_slot(gha, slot_start, truck_id, flow_type)
 
-    def orch_book_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
+    def orch_book_slot(self, gha: str, slot_start: int, truck_id: str, flow_type: str) -> bool:
         self._validate_gha(gha)
-        return self._assign_slot(gha, slot_start, truck_id)
+        return self._assign_slot(gha, slot_start, truck_id, flow_type)
 
     # ─────────────────────────────────────────────────────────────────────────
     # CANCELLATION
@@ -128,6 +124,7 @@ class DTPPlatform:
         from_start: int,
         to_gha: str,
         to_start: int,
+        flow_type: str
     ) -> bool:
         """
         Orchestrator moves a booking to a different slot or GHA.
@@ -141,14 +138,19 @@ class DTPPlatform:
             return False
 
         # Check space in destination before touching the source
-        if self._taken_docks_at(to_gha, to_start) >= params["ghas"][to_gha]["total"]:
+        if self._taken_docks_at(to_gha, to_start, flow_type) >= self.cfg["ghas"][to_gha][flow_type]:
             return False
 
         # Atomic swap
         if not self._free_slot(from_gha, from_start, truck_id):
             return False
+        
+        # Attempt to assign destination slot
+        if not self._assign_slot(to_gha, to_start, truck_id, flow_type):
+            self._assign_slot(from_gha, from_start, truck_id, flow_type)
+            return False
 
-        return self._assign_slot(to_gha, to_start, truck_id)
+        return True
 
     # ─────────────────────────────────────────────────────────────────────────
     # ARRIVAL PHASE — called by objects.py when a truck arrives at a GHA
@@ -221,7 +223,7 @@ class DTPPlatform:
     # ─────────────────────────────────────────────────────────────────────────
     # QUERY HELPERS — called by demand.py and schiphol_env.py
     # ─────────────────────────────────────────────────────────────────────────
-    def get_available_slots(self, gha: str, horizon: int = 480) -> List[int]:
+    def get_available_slots(self, gha: str, flow_type: str, horizon: int = 480) -> List[int]:
         self._validate_gha(gha)
         if horizon <= 0:
             raise ValueError(f'Horizon: {horizon}. Please insert positive horizon.')
@@ -234,7 +236,10 @@ class DTPPlatform:
                 continue
             if slot_start - now > horizon:
                 continue
-            if any(s["phase"] == "available" for s in slots):
+            if any(
+                s["phase"] == "available" and s.get("flow_type") == flow_type
+                for s in slots
+            ):
                 result.append(slot_start)
 
         return sorted(result)
@@ -256,10 +261,10 @@ class DTPPlatform:
         if gha not in self.cfg["ghas"].keys():
             raise ValueError(f'Unknown GHA: "{gha}". Please input valid GHA.')
 
-    def _assign_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
+    def _assign_slot(self, gha: str, slot_start: int, truck_id: str, flow_type: str) -> bool:
         """Find the first available entry in a window and assign it."""
         for slot in self.registry[gha].get(slot_start, []):
-            if slot["phase"] == "available":
+            if slot["phase"] == "available" and slot.get("flow_type") == flow_type:
                 slot["truck_id"] = truck_id
                 slot["phase"] = "booked"
                 return True
@@ -288,7 +293,7 @@ class DTPPlatform:
                 return True
         return False
 
-    def _taken_docks_at(self, gha: str, new_start: int) -> int:
+    def _taken_docks_at(self, gha: str, new_start: int, flow_type: str) -> int:
         """
         Counts docks already committed (booked or docked) during the window
         [new_start, new_start + slot_duration). Used to enforce capacity
@@ -304,10 +309,11 @@ class DTPPlatform:
                 count += sum(
                     1 for s in slots
                     if s["phase"] in ("booked", "docked")
+                    and s.get("flow_type") == flow_type
                 )
         return count
 
-    def _total_published_at(self, gha: str, new_start: int) -> int:
+    def _total_published_at(self, gha: str, new_start: int, flow_type: str) -> int:
         """
         Counts all slots (available, booked, or docked) during the window.
         This represents the total number of docks 'claimed' by the platform.
@@ -323,5 +329,6 @@ class DTPPlatform:
                 count += sum(
                     1 for s in slots
                     if s["phase"] in ("available", "booked", "docked")
+                    and s.get("flow_type") == flow_type
                 )
         return count

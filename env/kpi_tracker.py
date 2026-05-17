@@ -20,16 +20,13 @@
 #     Reward helpers are called by schiphol_env.py to compute step rewards.
 #     summary() is called at episode end for W&B logging.
 # =============================================================================
-import sys
-import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 from env.infrastructure import CheckpointID, SensorEvent
 from env.dtp_platform import DTPPlatform
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # MAIN CLASS

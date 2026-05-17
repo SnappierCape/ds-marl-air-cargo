@@ -143,12 +143,13 @@ class SchipholCargoEnv(ParallelEnv):
         # 6. Collect outputs
         obs = {a: self._get_obs(a) for a in self.agents}
         rewards = {a: self._get_reward(a, r_global) for a in self.agents}
-        dones = {a: False for a in self.agents}
+        term = {a: False for a in self.agents}
+        trunc = {a: False for a in self.agents}
         infos = {a: {"action_mask": self._get_mask(a)} for a in self.agents}
 
         # PettingZoo convention: empty agents list signals episode end.
         # Episode is controlled externally by env.run(until=T) in train.py.
-        return obs, rewards, dones, infos
+        return obs, rewards, term, trunc, infos
 
     # ─────────────────────────────────────────────────────────────────────────
     # ACTIONS

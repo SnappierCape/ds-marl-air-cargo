@@ -6,20 +6,19 @@
 #     produces valid observations, rewards, and doesn't crash.
 #
 # HOW TO RUN:
-#     python scripts/sanity_check.py
-#     python scripts/sanity_check.py --orchestrator (Scenario MO)
-#     python scripts/sanity_check.py --steps 500 (longer episode)
+#     uv run testing/simulation.py
+#     uv run testing/simulation.py --orchestrator (Scenario MO)
+#     uv run testing/simulation.py --steps 5000 (longer episode)
 # =============================================================================
 import sys
-import os
 import argparse
+
 import numpy as np
 
-sys.path.insert(1, "/".join(os.path.realpath(__file__).split("/")[0:-2]))
-import config.config as config
 from env.schiphol_env import SchipholCargoEnv
 
-params = config.load_params()
+from config.config import load_params
+params = load_params()
 
 # =============================================================================
 # MAIN TEST LOGIC

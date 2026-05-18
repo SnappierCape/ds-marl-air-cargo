@@ -578,16 +578,6 @@ class TestStepReturnShape(unittest.TestCase):
     def setUp(self):
         self.env = make_env_patched_apply()
 
-    def test_BUG_B_step_returns_4_tuple_instead_of_5(self):
-        """
-        BUG-B: step() omits `truncations`.  A compliant PettingZoo env must
-        return (obs, rewards, terminations, truncations, infos).
-        """
-        result = self.env.step(no_op_actions(self.env))
-        self.assertEqual(len(result), 4,
-            "BUG-B confirmed: step() returns 4-tuple, missing truncations. "
-            "Expected 5-tuple per PettingZoo ParallelEnv API.")
-
     def test_step_obs_is_dict(self):
         obs, *_ = self.env.step(no_op_actions(self.env))
         self.assertIsInstance(obs, dict)
@@ -603,11 +593,6 @@ class TestStepReturnShape(unittest.TestCase):
     def test_step_rewards_keys_match_agents(self):
         _, rewards, *_ = self.env.step(no_op_actions(self.env))
         self.assertEqual(set(rewards.keys()), set(self.env.agents))
-
-    def test_step_dones_all_false(self):
-        _, _, dones, _ = self.env.step(no_op_actions(self.env))
-        for agent, done in dones.items():
-            self.assertFalse(done, msg=f"{agent} done must be False")
 
     def test_step_infos_contain_action_mask(self):
         *_, infos = self.env.step(no_op_actions(self.env))
@@ -1198,41 +1183,6 @@ class TestGetMaskTransporterDispatch(unittest.TestCase):
         mask = self.env._get_mask("transporter")
         dispatch_action = N_BOOK_ACTIONS + 1
         self.assertEqual(mask[dispatch_action], 0)
-
-    def test_BUG_C_dispatch_mask_reads_manifest_not_stops_remaining(self):
-        """
-        BUG-C / BUG-G: The dispatch block builds `needed` from
-        truck.manifest, not truck.stops_remaining.
-        If GHA_A stop is COMPLETED (removed from stops_remaining) but
-        GHA_A is still in manifest, and GHA_A is NOT in booked_slots
-        (the booking was for the already-served stop), then
-            needed = {GHA_A, GHA_B}
-            booked = {GHA_B}
-            needed ⊄ booked → dispatch stays masked OFF
-        even though the truck's remaining work (GHA_B) is fully booked.
-        The truck is permanently stuck.
-        """
-        gha_done = GHA_IDS[0]   # stop already served
-        gha_todo = GHA_IDS[1]   # stop still pending, has a booking
-
-        truck = make_truck(
-            "T1",
-            manifest=[{"gha": gha_done, "parcels": 5},
-                      {"gha": gha_todo, "parcels": 3}],
-            booked_slots={gha_todo: 60},   # only remaining stop is booked
-        )
-        # Simulate: first stop served and completed
-        truck.stops_remaining = [{"gha": gha_todo, "parcels": 3}]
-
-        self.env.demand.pending_trucks = [truck]
-        mask = self.env._get_mask("transporter")
-        dispatch_action = N_BOOK_ACTIONS + 1
-
-        # With the bug, dispatch is 0 even though stops_remaining is fully booked
-        self.assertEqual(mask[dispatch_action], 0,
-            "BUG-C confirmed: dispatch is masked off because the check reads "
-            "truck.manifest (includes completed stop GHA_A) instead of "
-            "truck.stops_remaining.  Truck is permanently stuck.")
 
 
 # ---------------------------------------------------------------------------

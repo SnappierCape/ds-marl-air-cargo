@@ -19,11 +19,32 @@ kpi_tracker    --> schiphol_env
 
 ---
 
-## Glossary
+## Hyperparameter tuning
 
-### Slot
+```Plaintext
 
-A `slot` is just a dictionary with 2 keys: `truck_id` and `phase`. Multiple slots can fit into a list of dictionaries if they all start at the same time. When it is firstly published it does not contain the truck id. The slot is a different concept from the booking.
+1440 steps x 6 agents = 8640 frames_per_episode
+
+# We need to aim at 16-24 episodes_per_batch
+frames_per_batch = 16 episodes_per_batch x 8640 frames_per_episode = 138_240 --> We round up to 144_000
+
+# In the last run one sequential worker collected 5333 steps in 173s
+5333 / 173 ~ 30 steps_per_second
+
+# One full 1440 steps episode should take up:
+1440 / 30 ~ 48s
+
+# The lxc container in which this runs has 7 cpu threads, so leaving 1 for overhead we are left with 6.
+6 workers x 1 env each = 6 parallel episodes
+
+# Since one batch has 16 episodes, the time to complete one batch with 6 workers is:
+ceil(16/6) x 45s ~ 2 x 45 = 90s
+```
+
+The experiment settings has to be:
+
 ```python
-slot = {"truck_id": None, "phase": "available"}
+
+on_policy_minibatch_size=8640    # one full episode
+on_policy_n_minibatch_iters=16    # we want 16 episodes per batch
 ```

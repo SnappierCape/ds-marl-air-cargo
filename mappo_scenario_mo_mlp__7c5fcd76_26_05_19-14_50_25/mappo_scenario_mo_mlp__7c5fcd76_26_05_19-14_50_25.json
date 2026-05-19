@@ -1,0 +1,75 @@
+{
+    "schiphol": {
+        "scenario_mo": {
+            "mappo": {
+                "seed_42": {
+                    "absolute_metrics": {
+                        "transporter_return": [
+                            0.0
+                        ],
+                        "ghas_return": [
+                            0.0
+                        ],
+                        "orchestrator_return": [
+                            0.0
+                        ],
+                        "return": [
+                            0.0
+                        ]
+                    },
+                    "step_1": {
+                        "step_count": 34560,
+                        "transporter_return": [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "ghas_return": [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "orchestrator_return": [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ],
+                        "return": [
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}

@@ -301,7 +301,7 @@ class SchipholCargoEnv(ParallelEnv):
             return r_global    # Orchestrator has no private incentive
 
         if agent == "transporter":
-            r_private = self.kpi.transporter_reward(self.dtp)
+            r_private = self.kpi.transporter_reward(self.dtp, self.demand)
         else:
             r_private = self.kpi.gha_reward(agent, self.terminals[agent])
 

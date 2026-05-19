@@ -20,7 +20,7 @@ from marl.benchmarl_task import SchipholTask, SchipholConfig
 def main():
     # ── Retrieve custom task ────────────────────────────────────────────────
     task = SchipholTask.SCENARIO_MO.get_task(
-        config={"max_steps": 200, "with_orchestrator": True}
+        config={"max_steps": 1440, "with_orchestrator": True}
     )
     
     print(f'Loaded Task: {task.name}')
@@ -28,14 +28,19 @@ def main():
     
     # ── Experiment hyperparameters ───────────────────────────────────────────
     experiment_config = ExperimentConfig.get_from_yaml()
-    experiment_config.sampling_device="cpu"
+    experiment_config.sampling_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.train_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.max_n_iters=None
-    experiment_config.max_n_frames=200_000
-    experiment_config.on_policy_collected_frames_per_batch=4000
+    experiment_config.max_n_frames=138_240
+    experiment_config.on_policy_collected_frames_per_batch=34_560
     experiment_config.on_policy_n_minibatch_iters=4
-    experiment_config.on_policy_minibatch_size=400
+    experiment_config.on_policy_minibatch_size=8640
     experiment_config.lr=5e-4
+    experiment_config.parallel_collection=True
+    experiment_config.on_policy_n_envs_per_worker=1
+    experiment_config.evaluation_interval=34_560
+    experiment_config.clip_grad_norm=True
+    experiment_config.clip_grad_val=0.5
     
     # ── MAPPO config ─────────────────────────────────────────────────────────
     algorithm_config = MappoConfig(

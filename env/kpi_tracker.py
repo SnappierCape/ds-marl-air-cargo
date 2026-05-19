@@ -24,6 +24,7 @@ from typing import Dict, List
 
 from env.infrastructure import CheckpointID, SensorEvent
 from env.dtp_platform import DTPPlatform
+from env.demand import DemandGenerator
 
 from config.config import load_params
 params = load_params()
@@ -155,7 +156,7 @@ class KPITracker:
         w = self.w
         return -(w["wpr_global"] * self.wpr() + w["util_std"] * self.utilization_std())
 
-    def transporter_reward(self, dtp: DTPPlatform) -> float:
+    def transporter_reward(self, dtp: DTPPlatform, demand: DemandGenerator) -> float:
         w = self.w
         
         # Calculate current step wait
@@ -175,7 +176,8 @@ class KPITracker:
         return -(
             w["wait_per_min"] * delta_wait +
             w["no_show"] * delta_no_shows +
-            w["missed_slot"] * delta_late
+            w["missed_slot"] * delta_late +
+            w["pending_trucks"] * len(demand.pending_trucks)
         )
 
     def gha_reward(self, gha: str, terminal) -> float:    # NOTE: terminal should be a GHATerminal??

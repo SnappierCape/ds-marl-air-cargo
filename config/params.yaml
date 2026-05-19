@@ -120,6 +120,7 @@ marl:
     queue_per_step: 0.1
     wpr_global: 1.0
     util_std: 0.5
+    pending_trucks: 0.005
 
 # =============================================================================
 # BOOKING RULES

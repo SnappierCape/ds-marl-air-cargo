@@ -21,7 +21,7 @@ params = load_params()
 # ROAD MODEL
 # =============================================================================
 class RoadNetwork:
-    def __init__(self, cfg: Dict = params):
+    def __init__(self, cfg: Dict = params["road"]):
         self.sigma = cfg["sigma"]
         self.lbound = cfg["lbound"]
         self.ubound = cfg["ubound"]

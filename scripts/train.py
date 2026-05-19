@@ -5,14 +5,17 @@
 #     Programmatically executes a BenchMARL training experiment.
 #     Uses Multi-Agent PPO (MAPPO) to train policies for the Schiphol simulation.
 # =============================================================================
+from pathlib import Path
+
 import torch
 
 from benchmarl.algorithms import MappoConfig
 from benchmarl.experiment import Experiment, ExperimentConfig
-from benchmarl.environments import PettingZooTask
 from benchmarl.models import MlpConfig
 
-from marl.benchmarl_task import SchipholTask, SchipholConfig
+from marl.benchmarl_task import SchipholTask
+
+EXPERIMENT_DIR = Path(__file__).resolve().parent.parent / "experiments"
 
 # =============================================================================
 # TRAINING LOGIC
@@ -41,6 +44,7 @@ def main():
     experiment_config.evaluation_interval=34_560
     experiment_config.clip_grad_norm=True
     experiment_config.clip_grad_val=0.5
+    experiment_config.save_folder=EXPERIMENT_DIR
     
     # ── MAPPO config ─────────────────────────────────────────────────────────
     algorithm_config = MappoConfig(

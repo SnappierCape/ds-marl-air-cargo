@@ -74,10 +74,7 @@ class SchipholTaskImplementation:
             with_orch = (self.name == "SCENARIO_MO")
 
         def make_env() -> EnvBase:
-            # Create raw PettingZoo env
-            pz_env = SchipholCargoEnv(with_orchestrator=with_orch)
-
-            # Define groups
+            pz_env = SchipholCargoEnv(with_orchestrator=with_orch)    # pettingzoo env
             group_mapping = {
                 "transporter": ["transporter"],
                 "ghas": [a for a in pz_env.possible_agents if a in params["ghas"].keys()]
@@ -85,7 +82,7 @@ class SchipholTaskImplementation:
             if with_orch:
                 group_mapping["orchestrator"] = ["orchestrator"]
                 
-            # Wrap in TorchRL's PettingZoo adapter
+            # Transform into torchrl language
             torchrl_env = PettingZooWrapper(
                 env=pz_env,
                 group_map=group_mapping,
@@ -94,8 +91,6 @@ class SchipholTaskImplementation:
                 device=device,
                 seed=seed,
             )
-
-            # Add Transforms
             torchrl_env = TransformedEnv(torchrl_env)
             torchrl_env.append_transform(StepCounter(task_cfg.max_steps))
             

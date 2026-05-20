@@ -2,37 +2,21 @@
 # PETTINGZOO ENVIRONMENT WRAPPER
 # =============================================================================
 # DESCRIPTION:
-#     Bridges the SimPy simulation and the EPyMARL training framework.
+#     Bridges the SimPy simulation and the BenchMARL training framework.
 #     Implements the PettingZoo ParallelEnv API.
 #
 # RESPONSIBILITIES:
 #     reset()  → instantiate fresh simulation objects, return first observations
 #     step()   → apply actions, advance SimPy, return (obs, rewards, dones, infos)
-#
-# AGENT ROSTER:
-#     Scenario M  (no orchestrator): transporter, ghas
-#     Scenario MO (orchestrator): above + orchestrator
-#
-# ACTION SPACES:
-#     Transporter  → Discrete(N_SLOTS + 1)
-#                    0 = no_op
-#                    1..N = book the i-th available slot in the platform
-#     GHA (each)   → Discrete(3)
-#                    0 = no_op
-#                    1 = publish next slot window
-#                    2 = publish two slot windows ahead
-#     Orchestrator → Discrete(N_TP3_TRUCKS * N_GHAS + 1)
-#                    0 = no_op
-#                    else = complete control over trucks and docks except for already docked trucks
 # =============================================================================
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import simpy
 import numpy as np
 import gymnasium as gym
 from pettingzoo import ParallelEnv
 
-from env.objects import Truck, GHATerminal, TP3Buffer
+from env.objects import GHATerminal, TP3Buffer
 from env.dtp_platform import DTPPlatform
 from env.infrastructure import InfrastructureLayer
 from env.service_time import ServiceTimeModel
@@ -78,9 +62,7 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     def observation_space(self, agent: str) -> gym.Space:
         return gym.spaces.Box(
-            low=0.0, high=1.0,
-            shape=(self._obs_dim(agent),),
-            dtype=np.float32
+            low=0.0, high=1.0, shape=(self._obs_dim(agent),), dtype=np.float32
         )
 
     def action_space(self, agent: str) -> gym.Space:
@@ -115,7 +97,7 @@ class SchipholCargoEnv(ParallelEnv):
         # Reset agent list (PettingZoo convention)
         self.agents = self.possible_agents[:]
 
-        obs = {a: self._get_obs(a)  for a in self.agents}
+        obs = {a: self._get_obs(a) for a in self.agents}
         infos = {a: {"action_mask": self._get_mask(a)} for a in self.agents}
         return obs, infos
 

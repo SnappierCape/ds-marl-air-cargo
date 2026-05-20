@@ -51,6 +51,16 @@ class KPITracker:
         self._peak_service: float = 0.0
         self._nttp_sum: float = 0.0
         self._n_completed: int = 0
+        
+        # Per-flow accumulators
+        self._exp_wait: float = 0.0
+        self._imp_wait: float = 0.0
+        self._exp_service: float = 0.0
+        self._imp_service: float = 0.0
+        self._exp_completed: float = 0.0
+        self._imp_completed: float = 0.0
+        self._exp_nttp_sum: float = 0.0
+        self._imp_nttp_sum: float = 0.0
 
         # Per-GHA dock utilization snapshots — appended each step
         # {gha: {"export": [ratio, ...], "import": [ratio, ...]}}
@@ -77,6 +87,7 @@ class KPITracker:
                 self._truck[tid] = {
                     "gate_in": e.sim_time,
                     "n_parcels": e.n_parcels or 0,
+                    "flow_type": e.flow_type or "unknown",
                     "gha_in": {},
                     "dock_start": {},
                     "dock_end": {},
@@ -97,6 +108,15 @@ class KPITracker:
                     self._total_wait += wait
                     if self._peak_start <= e.sim_time <= self._peak_end:
                         self._peak_wait += wait
+                    
+                    state = self._truck.get(tid)
+                    if state:
+                        if state["flow_type"] == "export":
+                            self._exp_wait += wait
+                        elif state["flow_type"] == "import":
+                            self._imp_wait += wait
+                        else:
+                            raise ValueError(f'"{state["flow_type"]}" is not a supported flow type.')
 
             elif e.checkpoint == CheckpointID.DOCK_END:
                 state = self._truck.get(tid)
@@ -113,8 +133,17 @@ class KPITracker:
                 state = self._truck.get(tid)
                 if state and state["n_parcels"] > 0:
                     turnaround = e.sim_time - state["gate_in"]
-                    self._nttp_sum  += turnaround / state["n_parcels"]
+                    nttp_contrib = turnaround / state["n_parcels"]
+                    self._nttp_sum  += nttp_contrib
                     self._n_completed += 1
+                    
+                    if state["flow_type"] == "export":
+                        self._exp_nttp_sum += nttp_contrib
+                        self._exp_completed += 1
+                        
+                    elif state["flow_type"] == "import":
+                        self._imp_nttp_sum += nttp_contrib
+                        self._imp_completed += 1
                 # Remove from working state — truck is done
                 self._truck.pop(tid, None)
 
@@ -139,6 +168,21 @@ class KPITracker:
 
     def nttp(self) -> float:
         return 0.0 if self._n_completed == 0 else self._nttp_sum / self._n_completed
+    
+    def exp_wpr(self) -> float:
+        return (0.0 if self._exp_service == 0 else self._exp_wait / self._exp_service)
+    
+    def imp_wpr(self) -> float:
+        return (0.0 if self._imp_service == 0 else self._imp_wait / self._imp_service)
+    
+    def exp_nttp(self) -> float:
+        return (0.0 if self._exp_completed == 0 else self._exp_nttp_sum / self._exp_completed)
+    
+    def imp_nttp(self) -> float:
+        return (0.0 if self._imp_completed == 0 else self._imp_nttp_sum / self._imp_completed)
+    
+    def flow_type_wpr_gap(self) -> float:
+        return abs(self.exp_wpr() - self.imp_wpr())
 
     def utilization_std(self) -> float:
         import numpy as np
@@ -204,8 +248,15 @@ class KPITracker:
         return {
             "wpr": self.wpr(),
             "peak_wpr": self.peak_wpr(),
+            "exp_wpr": self.exp_wpr(),
+            "imp_wpr": self.imp_wpr(),
+            "flow_type_wpr_gap": self.flow_type_wpr_gap(),
             "nttp": self.nttp(),
+            "exp_nttp": self.exp_nttp(),
+            "imp_nttp": self.imp_nttp(),
             "util_std": self.utilization_std(),
             "n_completed": self._n_completed,
+            "exp_completed": self._exp_completed,
+            "imp_completed": self._imp_completed,
             "global_reward": self.global_reward(),
         }

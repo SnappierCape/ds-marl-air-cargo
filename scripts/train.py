@@ -26,8 +26,8 @@ def main():
         config={"max_steps": 1440, "with_orchestrator": True}
     )
     
-    print(f'Loaded Task: {task.name}')
-    print(f'Task Configuration: {task.config}')
+    print(f'\nLoaded Task:\n{task.name}')
+    print(f'\nTask Configuration:\n{task.config}\n')
     
     # ── Experiment hyperparameters ───────────────────────────────────────────
     experiment_config = ExperimentConfig.get_from_yaml()
@@ -83,9 +83,9 @@ def main():
     )
     
     # ── Run ──────────────────────────────────────────────────────────────────
-    print("Starting BenchMARL training loop...")
+    print("\nStarting BenchMARL training loop...")
     experiment.run()
-    print("Training finished successfully!")
+    print("\nTraining finished successfully!")
     
 if __name__ == "__main__":
     main()

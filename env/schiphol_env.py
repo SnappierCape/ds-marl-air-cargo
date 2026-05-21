@@ -250,11 +250,18 @@ class SchipholCargoEnv(ParallelEnv):
             obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
             obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
             obs[i] = self.tp3.occupancy_ratio(); i += 1
+            
             # Other GHAs' occupancies (context for load balancing)
             for other in GHA_IDS:
                 if other != agent:
                     obs[i] = self.terminals[other].exp_occupancy(); i += 1
                     obs[i] = self.terminals[other].imp_occupancy(); i += 1
+            
+            # Published slots to inform publication decisions
+            exp_slots = len(self.dtp.get_available_slots(agent, "export", horizon=270))
+            imp_slots = len(self.dtp.get_available_slots(agent, "import", horizon=270))
+            obs[i] = exp_slots / max(1, params["ghas"][agent]["export"]); i += 1
+            obs[i] = imp_slots / max(1, params["ghas"][agent]["import"]); i += 1
 
         # ── Orchestrator ──────────────────────────────────────────────────────
         elif agent == "orchestrator":

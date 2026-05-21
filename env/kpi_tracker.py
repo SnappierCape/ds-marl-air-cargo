@@ -226,8 +226,11 @@ class KPITracker:
 
     def gha_reward(self, gha: str, terminal) -> float:    # NOTE: terminal should be a GHATerminal??
         w = self.w
+        
         util = (terminal.exp_occupancy() + terminal.imp_occupancy()) / 2
+        
         q = terminal.exp_queue_norm() + terminal.imp_queue_norm()
+        
         total_proc = (
             terminal.stats["export"]["processed"] +
             terminal.stats["import"]["processed"]

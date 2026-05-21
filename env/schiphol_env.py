@@ -386,7 +386,7 @@ class SchipholCargoEnv(ParallelEnv):
             for flow_type in ("import", "export"):
                 n_docks = params["ghas"][gha][flow_type]
                 for i in range(n_docks):
-                    t = now + freeze + 1 + (i * slot_dur)
+                    t = now + freeze + 1 + (i * (slot_dur / 10))
                     self.dtp.publish_slot(gha, t, flow_type)
 
     def _next_publishable_windows(self) -> List[int]:

@@ -379,18 +379,15 @@ class SchipholCargoEnv(ParallelEnv):
         One slot per dock per 45-min window.
         """
         now = self.sim.now
-        slot_dur = params["dtp_rules"]["slot_duration"]
-        lead_time = params["dtp_rules"]["lead_time"]
         freeze = params["dtp_rules"]["freeze_time"]
+        slot_dur = params["dtp_rules"]["slot_duration"]
 
         for gha in GHA_IDS:
-            for flow_type in ("import", "export"):    # hardcoded
+            for flow_type in ("import", "export"):
                 n_docks = params["ghas"][gha][flow_type]
-                t = now + freeze + 1    # start just outside the frozen window
-                while t <= now + lead_time:
-                    for _ in range(n_docks):
-                        self.dtp.publish_slot(gha, t, flow_type)
-                    t += slot_dur
+                for i in range(n_docks):
+                    t = now + freeze + 1 + (i * slot_dur)
+                    self.dtp.publish_slot(gha, t, flow_type)
 
     def _next_publishable_windows(self) -> List[int]:
         """Next two slot windows a GHA can publish right now."""

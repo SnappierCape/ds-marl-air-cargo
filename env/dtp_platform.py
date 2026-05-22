@@ -194,7 +194,7 @@ class DTPPlatform:
         # to check for a specific truck_id
         return any(
             slot["phase"] == "booked"
-            for slot in self.registry[gha].get(slot_start, [])
+            for slot in self.registry[gha][slot_start]
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ class DTPPlatform:
 
     def _assign_slot(self, gha: str, slot_start: int, truck_id: str, flow_type: str) -> bool:
         """Find the first available entry in a window and assign it."""
-        for slot in self.registry[gha].get(slot_start, []):
+        for slot in self.registry[gha][slot_start]:
             if slot["phase"] == "available" and slot.get("flow_type") == flow_type:
                 slot["truck_id"] = truck_id
                 slot["phase"] = "booked"
@@ -272,7 +272,7 @@ class DTPPlatform:
 
     def _free_slot(self, gha: str, slot_start: int, truck_id: str) -> bool:
         """Reset a slot entry back to available."""
-        for slot in self.registry[gha].get(slot_start, []):
+        for slot in self.registry[gha][slot_start]:
             if slot["truck_id"] == truck_id:
                 slot["truck_id"] = None
                 slot["phase"] = "available"
@@ -281,14 +281,14 @@ class DTPPlatform:
 
     def _set_phase(self, gha: str, slot_start: int, truck_id: str, phase: str) -> None:
         """Update the phase of a specific slot entry."""
-        for slot in self.registry.get(gha, {}).get(slot_start, []):
+        for slot in self.registry.get(gha, {})[slot_start]:
             if slot["truck_id"] == truck_id:
                 slot["phase"] = phase
                 return
 
     def _is_docked(self, gha: str, slot_start: int, truck_id: str) -> bool:
         """True if this truck's slot is in the docked phase."""
-        for slot in self.registry[gha].get(slot_start, []):
+        for slot in self.registry[gha][slot_start]:
             if slot["truck_id"] == truck_id and slot["phase"] == "docked":
                 return True
         return False

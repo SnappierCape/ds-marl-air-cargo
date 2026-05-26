@@ -190,7 +190,7 @@ class SchipholCargoEnv(ParallelEnv):
                     slots = self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
                     if slots:
                         self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, truck.flow_type)
-                        truck.booked_slots[gha] = slots[0]
+                        truck.booked_slots[gha] = slots[0]    # NOTE: issue 12, this directly touches booked_slots
 
     # ─────────────────────────────────────────────────────────────────────────
     # OBSERVATION SPACE
@@ -361,8 +361,8 @@ class SchipholCargoEnv(ParallelEnv):
             # 4 (tp3+time) + 2*N_GHAS (slot counts imp+exp) + 2*N_GHAS (occupancies imp+exp) + N_PENDING_TRUCKS * 4 features
             return 4 + 2 * N_GHAS + 2 * N_GHAS + 4 * N_PENDING_TRUCKS
         elif agent in GHA_IDS:
-            # 9 own + 2*(N_GHAS-1) others
-            return 9 + 2 * (N_GHAS - 1)
+            # 11 own + 2*(N_GHAS-1) others
+            return 11 + 2 * (N_GHAS - 1)
         elif agent == "orchestrator":
             # 4 system + 5*N_GHAS per GHA
             return 4 + 5 * N_GHAS

@@ -100,16 +100,16 @@ class KPITracker:
 
             elif e.checkpoint == CheckpointID.DOCK_START:
                 state = self._truck.get(tid)
+                
                 if state and e.gha_id:
                     state["dock_start"][e.gha_id] = e.sim_time
-                    # Wait time = from GHA entrance to dock start
                     gha_in = state["gha_in"].get(e.gha_id, e.sim_time)
                     wait = e.sim_time - gha_in
                     self._total_wait += wait
+                    
                     if self._peak_start <= e.sim_time <= self._peak_end:
                         self._peak_wait += wait
-                    
-                    state = self._truck.get(tid)
+                        
                     if state:
                         if state["flow_type"] == "export":
                             self._exp_wait += wait
@@ -120,15 +120,23 @@ class KPITracker:
 
             elif e.checkpoint == CheckpointID.DOCK_END:
                 state = self._truck.get(tid)
+                
                 if state and e.gha_id:
                     state["dock_end"][e.gha_id] = e.sim_time
-                    # Service time = dock_end - dock_start
                     dock_start = state["dock_start"].get(e.gha_id, e.sim_time)
                     service = e.sim_time - dock_start
                     self._total_service += service
+                    
                     if self._peak_start <= e.sim_time <= self._peak_end:
                         self._peak_service += service
-
+                        
+                        if state["flow_type"] == "export":
+                            self._exp_service += service
+                        elif state["flow_type"] == "import":
+                            self._imp_service += service
+                        else:
+                            raise ValueError(f'"{state["flow_type"]}" is not a supported flow type.')
+                    
             elif e.checkpoint == CheckpointID.GATE_OUT:
                 state = self._truck.get(tid)
                 if state and state["n_parcels"] > 0:

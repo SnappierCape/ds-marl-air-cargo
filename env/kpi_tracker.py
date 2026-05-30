@@ -20,11 +20,16 @@
 #     Reward helpers are called by schiphol_env.py to compute step rewards.
 #     summary() is called at episode end for W&B logging.
 # =============================================================================
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from typing import Dict, List
 
 from env.infrastructure import CheckpointID, SensorEvent
 from env.dtp_platform import DTPPlatform
 from env.demand import DemandGenerator
+if TYPE_CHECKING:
+    from env.objects import GHATerminal
 
 from config.config import load_params
 params = load_params()
@@ -155,7 +160,7 @@ class KPITracker:
                 # Remove from working state — truck is done
                 self._truck.pop(tid, None)
 
-    def snapshot_utilization(self, terminals: Dict) -> None:    # NOTE: terminal should be a GHATerminal??
+    def snapshot_utilization(self, terminals: Dict[str, GHATerminal]) -> None:
         """
         Record current dock occupancy for all GHAs.
         Called once per MARL step by schiphol_env.py.
@@ -232,7 +237,7 @@ class KPITracker:
             w["pending_trucks"] * len(demand.pending_trucks)
         )
 
-    def gha_reward(self, gha: str, terminal) -> float:    # NOTE: terminal should be a GHATerminal??
+    def gha_reward(self, gha: str, terminal: GHATerminal) -> float:
         w = self.w
         
         util = (terminal.exp_occupancy() + terminal.imp_occupancy()) / 2

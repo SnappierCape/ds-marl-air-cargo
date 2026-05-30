@@ -258,10 +258,13 @@ class SchipholCargoEnv(ParallelEnv):
                     obs[i] = self.terminals[other].imp_occupancy(); i += 1
             
             # Published slots to inform publication decisions
+            slot_dur = params["dtp_rules"]["slot_duration"]
             exp_slots = len(self.dtp.get_available_slots(agent, "export", horizon=270))
             imp_slots = len(self.dtp.get_available_slots(agent, "import", horizon=270))
-            obs[i] = exp_slots / max(1, params["ghas"][agent]["export"]); i += 1
-            obs[i] = imp_slots / max(1, params["ghas"][agent]["import"]); i += 1
+            exp_max = max(1, params["ghas"][agent]["export"]) * max(1, 270 // slot_dur)
+            imp_max = max(1, params["ghas"][agent]["import"]) * max(1, 270 // slot_dur)
+            obs[i] = min(1.0, exp_slots / exp_max); i += 1
+            obs[i] = min(1.0, imp_slots / imp_max); i += 1
 
         # ── Orchestrator ──────────────────────────────────────────────────────
         elif agent == "orchestrator":

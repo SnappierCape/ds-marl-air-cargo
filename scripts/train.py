@@ -34,9 +34,9 @@ def main():
     experiment_config.sampling_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.train_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.max_n_iters=None
-    experiment_config.max_n_frames=138_240
+    experiment_config.max_n_frames=2_211_840
     experiment_config.on_policy_collected_frames_per_batch=34_560
-    experiment_config.on_policy_n_minibatch_iters=4
+    experiment_config.on_policy_n_minibatch_iters=8
     experiment_config.on_policy_minibatch_size=8640
     experiment_config.lr=5e-4
     experiment_config.parallel_collection=True
@@ -45,6 +45,7 @@ def main():
     experiment_config.clip_grad_norm=True
     experiment_config.clip_grad_val=0.5
     experiment_config.save_folder=EXPERIMENT_DIR
+    experiment_config.gamma=0.999
     
     # ── MAPPO config ─────────────────────────────────────────────────────────
     algorithm_config = MappoConfig(
@@ -53,7 +54,7 @@ def main():
         entropy_coef=0.01,
         critic_coef=0.5,
         loss_critic_type="l2",
-        lmbda=0.95,
+        lmbda=0.99,
         scale_mapping="biased_softplus",
         use_tanh_normal=True,
         minibatch_advantage=True

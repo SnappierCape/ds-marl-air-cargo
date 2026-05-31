@@ -136,12 +136,12 @@ class KPITracker:
                     if self._peak_start <= e.sim_time <= self._peak_end:
                         self._peak_service += service
                         
-                        if state["flow_type"] == "export":
-                            self._exp_service += service
-                        elif state["flow_type"] == "import":
-                            self._imp_service += service
-                        else:
-                            raise ValueError(f'"{state["flow_type"]}" is not a supported flow type.')
+                    if state["flow_type"] == "export":
+                        self._exp_service += service
+                    elif state["flow_type"] == "import":
+                        self._imp_service += service
+                    else:
+                        raise ValueError(f'"{state["flow_type"]}" is not a supported flow type.')
                     
             elif e.checkpoint == CheckpointID.GATE_OUT:
                 state = self._truck.get(tid)

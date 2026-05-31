@@ -34,7 +34,7 @@ def main():
     experiment_config.sampling_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.train_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.max_n_iters=None
-    experiment_config.max_n_frames=1_105_920
+    experiment_config.max_n_frames=552_960
     experiment_config.on_policy_collected_frames_per_batch=34_560
     experiment_config.on_policy_n_minibatch_iters=8
     experiment_config.on_policy_minibatch_size=8640
@@ -47,6 +47,10 @@ def main():
     experiment_config.save_folder=EXPERIMENT_DIR
     experiment_config.gamma=0.999
     
+    experiment_config.checkpoint_interval=experiment_config.on_policy_collected_frames_per_batch * 3
+    experiment_config.checkpoint_at_end=True
+    experiment_config.keep_checkpoints_num=3
+
     # ── MAPPO config ─────────────────────────────────────────────────────────
     algorithm_config = MappoConfig(
         share_param_critic=False,    # groups have distinct obs vectors

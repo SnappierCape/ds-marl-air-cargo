@@ -37,6 +37,12 @@ N_BOOK_ACTIONS = N_PENDING_TRUCKS * N_GHAS
 N_DISPATCH_ACTIONS = N_PENDING_TRUCKS
 TRANSPORTER_ACTION_DIM = 1 + N_BOOK_ACTIONS + N_DISPATCH_ACTIONS
 
+# Orchestrator specific helpers
+_ORCH_BOOK_OFFSET = 1
+_ORCH_DISPATCH_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS
+_ORCH_CANCEL_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS + N_PENDING_TRUCKS
+_ORCH_MODIFY_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS + N_PENDING_TRUCKS + N_PENDING_TRUCKS * N_GHAS
+
 # =============================================================================
 # MAIN CLASS
 # =============================================================================
@@ -84,7 +90,6 @@ class SchipholCargoEnv(ParallelEnv):
             for gha in GHA_IDS
         }
 
-        # Pre-publish slots for the first 72h so trucks can book on arrival
         self._prepopulate_slots()
 
         # Start the demand generator — runs as a background SimPy process
@@ -105,10 +110,14 @@ class SchipholCargoEnv(ParallelEnv):
     # MARL STEP
     # ─────────────────────────────────────────────────────────────────────────
     def step(self, actions: Dict[str, int]) -> Tuple[Dict]:
-        # 1. Apply each agent's action to the DTP platform
+        # 1. Apply each agent's action to the DTP platform making sure tha orch has the last word
         for agent, action in actions.items():
-            self._apply_action(agent, action)
-
+            if agent != "orchestrator":
+                self._apply_action(agent, action)
+                
+        if "orchestrator" in actions:
+            self._apply_action("orchestrator", actions["orchestrator"])
+            
         # 2. Advance SimPy by one step
         self.sim.run(until=self.sim.now + self.step_min)
 
@@ -174,23 +183,80 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
-            # Actions encode (truck_index, gha_index) pairs
-            # action = truck_i * N_GHAS + gha_j + 1
-            action_idx = action - 1
-            truck_idx = action_idx // N_GHAS
-            gha_idx = action_idx %  N_GHAS
-            gha = GHA_IDS[gha_idx]
-
-            parked = self.tp3.get_parked_trucks()
-            if truck_idx < len(parked):
-                truck = parked[truck_idx]
-                self.tp3.release(truck.truck_id)
-                # If no booking exists for this GHA, book the next available
-                if gha not in truck.booked_slots:
-                    slots = self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
-                    if slots:
-                        self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, truck.flow_type)
-                        truck.booked_slots[gha] = slots[0]    # NOTE: issue 12, this directly touches booked_slots
+            pending = self.demand.pending_trucks[:N_PENDING_TRUCKS]
+            
+            if action == 0:
+                return
+            
+            elif _ORCH_BOOK_OFFSET <= action < _ORCH_DISPATCH_OFFSET:
+                idx = action - _ORCH_BOOK_OFFSET
+                t_idx = idx // N_GHAS
+                g_idx = idx % N_GHAS
+                
+                if t_idx >= len(pending):
+                    return
+                
+                truck = pending[t_idx]
+                gha = GHA_IDS[g_idx]
+                slots = self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
+                
+                if not slots:
+                    return
+                
+                self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, truck.flow_type)
+            
+            elif _ORCH_DISPATCH_OFFSET <= action < _ORCH_CANCEL_OFFSET:
+                t_idx = action - _ORCH_DISPATCH_OFFSET
+                
+                if t_idx >= len(pending):
+                    return
+                
+                self.demand.dispatch_truck(pending[t_idx].truck_id)
+                
+            elif _ORCH_CANCEL_OFFSET <= action < _ORCH_MODIFY_OFFSET:
+                idx = action - _ORCH_CANCEL_OFFSET
+                t_idx = idx // N_GHAS
+                g_idx = idx % N_GHAS
+                
+                if t_idx >= len(pending):
+                    return
+                
+                truck = pending[t_idx]
+                gha = GHA_IDS[g_idx]
+                slot = truck.booked_slots.get(gha)
+                
+                if slot is None:
+                    return
+                
+                self.dtp.orch_cancel_book(gha, slot, truck.truck_id)
+                
+            elif action >= _ORCH_MODIFY_OFFSET:
+                idx = action - _ORCH_MODIFY_OFFSET
+                t_idx = idx // N_GHAS**2
+                remainder = idx % N_GHAS**2
+                from_g = remainder // N_GHAS
+                to_g = remainder % N_GHAS
+                
+                if t_idx >= len(pending):
+                    return
+                
+                truck = pending[t_idx]
+                from_gha = GHA_IDS[from_g]
+                to_gha = GHA_IDS[to_g]
+                from_slot = truck.booked_slots.get(from_gha)
+                
+                if from_slot is None:
+                    return
+                
+                slots = self.dtp.get_available_slots(to_gha, truck.flow_type, horizon=120)
+                if from_gha == to_gha:
+                    slots = [s for s in slots if s != from_slot]
+                if not slots:
+                    return
+                
+                self.dtp.orch_modify_book(
+                    truck.truck_id, from_gha, from_slot, to_gha, slots[0], truck.flow_type
+                )
 
     # ─────────────────────────────────────────────────────────────────────────
     # OBSERVATION SPACE
@@ -340,23 +406,76 @@ class SchipholCargoEnv(ParallelEnv):
                     mask[i + 1] = 1
 
         elif agent == "orchestrator":
-            parked = self.tp3.get_parked_trucks()
-            for t_idx, truck in enumerate(parked[:N_TP3_ACTIONS]):
+            pending = self.demand.pending_trucks[:N_PENDING_TRUCKS]
+            
+            for t_idx, truck in enumerate(pending):
+                
+                # ── Section 1: Booking ───────────────────────────────────────
                 for g_idx, gha in enumerate(GHA_IDS):
-                    # condition 1: truck actually needs to visit this GHA
-                    needs_gha = any(s["gha"] == gha for s in truck.stops_remaining)
-                    if not needs_gha:
-                        continue
-                    # condition 2: at least one slot of the truck's flow_type exists
-                    has_slots = bool(
-                        self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
-                    )
-                    if not has_slots:
-                        continue
-                    action = t_idx * N_GHAS + g_idx + 1
-                    if action < dim:
-                        mask[action] = 1
+                    action = _ORCH_BOOK_OFFSET + (t_idx * N_GHAS) + g_idx
 
+                    if action >= dim:
+                        continue    # action is not in action space
+                    if not any(s["gha"] == gha for s in truck.stops_remaining):
+                        continue    # gha not in manifest
+                    if gha in truck.booked_slots:
+                        continue    # truck has already booked here
+                    if not self.dtp.get_available_slots(gha, truck.flow_type, 120):
+                        continue    # no available slots
+                    
+                    mask[action] = 1
+                    
+                # ── Section 2: Dispatch ──────────────────────────────────────
+                action = _ORCH_DISPATCH_OFFSET + (t_idx * N_GHAS) + g_idx
+                
+                if action < dim:
+                    all_booked = all(s["gha"] in truck.booked_slots for s in truck.manifest)
+                    if all_booked:
+                        mask[action] = 1
+                
+                # ── Section 3: Cancel book ───────────────────────────────────
+                for g_idx, gha in enumerate(GHA_IDS):
+                    action = _ORCH_CANCEL_OFFSET + (t_idx * N_GHAS) + g_idx
+
+                    if action >= dim:
+                        continue    # action is not in action space
+                    
+                    slot = truck.booked_slots.get(gha)
+                    if slot is None:
+                        continue
+                    if self.dtp._is_docked(gha, slot, truck.truck_id):
+                        continue
+
+                    mask[action] = 1
+                    
+                # ── Section 4: Modify book ───────────────────────────────────
+                for from_g, from_gha in enumerate(GHA_IDS):
+                    from_slot = truck.booked_slots.get(from_gha)
+                    
+                    if from_slot is None:
+                        continue
+                    if self.dtp._is_docked(from_gha, from_slot, truck.truck_id):
+                        continue
+
+                    for to_g, to_gha in enumerate(GHA_IDS):
+                        action = _ORCH_MODIFY_OFFSET + (t_idx * N_GHAS**2) + (from_g * N_GHAS * to_g)
+                        
+                        if action >= dim:
+                            continue
+
+                        available_at_dest = self.dtp.get_available_slots(
+                            to_gha, truck.flow_type, horizon=120
+                        )
+                        if not available_at_dest:
+                            continue
+
+                        if from_gha == to_gha:
+                            other_slots = [s for s in available_at_dest if s != from_slot]
+                            if not other_slots:
+                                continue
+                        
+                        mask[action] = 1
+                
         return mask
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -380,17 +499,20 @@ class SchipholCargoEnv(ParallelEnv):
         elif agent in GHA_IDS:
             return 3    # no_op, publish_next, publish_one_after
         elif agent == "orchestrator":
-            return N_TP3_ACTIONS * N_GHAS + 1
+            return (
+                1    # no_op
+                + N_PENDING_TRUCKS * N_GHAS    # book
+                + N_PENDING_TRUCKS    # dispatch
+                + N_PENDING_TRUCKS * N_GHAS   # cancel book
+                + N_PENDING_TRUCKS * N_GHAS**2    # modify book
+            )
         raise ValueError(f'Agent {agent} is unknown, please input a known agent')
 
     # ─────────────────────────────────────────────────────────────────────────
     # PRIVATE HELPERS
     # ─────────────────────────────────────────────────────────────────────────
     def _prepopulate_slots(self) -> None:
-        """
-        Publish slots for all GHAs for the next 72h at episode start.
-        One slot per dock per 45-min window.
-        """
+        """Publish one slot per dock door to warm start the training."""
         now = self.sim.now
         freeze = params["dtp_rules"]["freeze_time"]
         slot_dur = params["dtp_rules"]["slot_duration"]

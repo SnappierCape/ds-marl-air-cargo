@@ -78,6 +78,7 @@ class KPITracker:
         self._prev_total_wait: float = 0.0
         self._prev_no_shows: int = 0
         self._prev_late: int = 0
+        self._prev_pending: int = 0
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT INGESTION — called every MARL step by schiphol_env.py
@@ -224,17 +225,20 @@ class KPITracker:
         delta_no_shows = current_no_shows - self._prev_no_shows
         current_late = sum(dtp.late_arrivals.values())
         delta_late = current_late - self._prev_late
+        current_pending = len(demand.pending_trucks)
+        delta_pending = current_pending - self._prev_pending
         
         # Update trackers for the next step
         self._prev_total_wait = self._total_wait
         self._prev_no_shows = current_no_shows
         self._prev_late = current_late
+        self._prev_pending = current_pending
         
         return -(
             w["wait_per_min"] * delta_wait +
             w["no_show"] * delta_no_shows +
             w["missed_slot"] * delta_late +
-            w["pending_trucks"] * len(demand.pending_trucks)
+            w["pending_trucks"] * delta_pending
         )
 
     def gha_reward(self, gha: str, terminal: GHATerminal, dtp: DTPPlatform) -> float:

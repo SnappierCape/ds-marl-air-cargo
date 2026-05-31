@@ -289,15 +289,18 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     def _get_reward(self, agent: str, r_global: float) -> float:
         """Mix private and global reward by alpha."""
+        scale = params["marl"]["reward_scale"]
+        
         if agent == "orchestrator":
-            return r_global    # Orchestrator has no private incentive
-
-        if agent == "transporter":
+            r_private = 0.0
+        elif agent == "transporter":
             r_private = self.kpi.transporter_reward(self.dtp, self.demand)
+        elif agent in params["ghas"].keys():
+            r_private = self.kpi.gha_reward(agent, self.terminals[agent], self.dtp)
         else:
-            r_private = self.kpi.gha_reward(agent, self.terminals[agent])
-
-        return (1 - self.alpha) * r_private + self.alpha * r_global
+            raise ValueError(f'Agent "{agent}" is unknown.')
+        
+        return scale * ((1 - self.alpha) * r_private + self.alpha * r_global)
 
     # ─────────────────────────────────────────────────────────────────────────
     # ILLEGAL ACTION MASKING

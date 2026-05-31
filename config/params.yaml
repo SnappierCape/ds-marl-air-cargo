@@ -121,6 +121,7 @@ marl:
     wpr_global: 1.0
     util_std: 0.5
     pending_trucks: 0.005
+  reward_scale: 0.01
 
 # =============================================================================
 # BOOKING RULES

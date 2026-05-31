@@ -237,11 +237,9 @@ class KPITracker:
             w["pending_trucks"] * len(demand.pending_trucks)
         )
 
-    def gha_reward(self, gha: str, terminal: GHATerminal) -> float:
+    def gha_reward(self, gha: str, terminal: GHATerminal, dtp: DTPPlatform) -> float:
         w = self.w
-        
         util = (terminal.exp_occupancy() + terminal.imp_occupancy()) / 2
-        
         q = terminal.exp_queue_norm() + terminal.imp_queue_norm()
         
         total_proc = (
@@ -251,10 +249,19 @@ class KPITracker:
         delta_proc = total_proc - self._prev_proc[gha]
         self._prev_proc[gha] = total_proc
         
+        slot_dur = params["dtp_rules"]["slot_duration"]
+        horizon = 180    # hardcoded
+        n_exp = len(dtp.get_available_slots(gha, "export", horizon=horizon))
+        n_imp = len(dtp.get_available_slots(gha, "import", horizon=horizon))
+        max_exp = max(1, params["ghas"][gha]["export"]) * max(1, horizon // slot_dur)
+        max_imp = max(1, params["ghas"][gha]["import"]) * max(1, horizon // slot_dur)
+        slot_readiness = (n_exp / max_exp + n_imp / max_imp)
+        
         return (
             w["dock_util"] * util +
             w["parcel_on_time"] * delta_proc -
-            w["queue_per_step"] * q
+            w["queue_per_step"] * q +
+            w["slot_readiness"] * slot_readiness
         )
 
     # ─────────────────────────────────────────────────────────────────────────

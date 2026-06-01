@@ -79,7 +79,8 @@ class KPITracker:
         self._prev_no_shows: int = 0
         self._prev_late: int = 0
         self._prev_pending: int = 0
-        self._prev_parked = 0
+        self._prev_parked: int = 0
+        self._orch_pending: int = 0
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT INGESTION — called every MARL step by schiphol_env.py
@@ -215,14 +216,18 @@ class KPITracker:
         w = self.w
         return -(w["wpr_global"] * self.wpr() + w["util_std"] * self.utilization_std())
     
-    def orchestrator_reward(self, tp3: TP3Buffer) -> float:
+    def orchestrator_reward(self, tp3: TP3Buffer, demand: DemandGenerator) -> float:
         w = self.w
+        
+        current_pending = len(demand.pending_trucks)
+        delta_pending = current_pending - self._orch_pending
+        self._orch_pending = current_pending
 
         current_parked = tp3.n_parked()
         delta_parked = current_parked - self._prev_parked
         self._prev_parked = current_parked
 
-        return -w["pending_trucks"] * delta_parked
+        return -w["pending_trucks"] * (delta_parked + delta_pending)
 
     def transporter_reward(self, dtp: DTPPlatform, demand: DemandGenerator) -> float:
         w = self.w

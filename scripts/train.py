@@ -34,14 +34,14 @@ def main():
     experiment_config.sampling_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.train_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.max_n_iters=None
-    experiment_config.max_n_frames=552_960
+    experiment_config.max_n_frames=276_480
     experiment_config.on_policy_collected_frames_per_batch=34_560
     experiment_config.on_policy_n_minibatch_iters=8
     experiment_config.on_policy_minibatch_size=8640
-    experiment_config.lr=5e-4
+    experiment_config.lr=1e-3
     experiment_config.parallel_collection=True
     experiment_config.on_policy_n_envs_per_worker=4
-    experiment_config.evaluation_interval=276_480
+    experiment_config.evaluation_interval=69_120
     experiment_config.clip_grad_norm=True
     experiment_config.clip_grad_val=5
     experiment_config.save_folder=EXPERIMENT_DIR

@@ -48,3 +48,44 @@ The experiment settings has to be:
 on_policy_minibatch_size=8640    # one full episode
 on_policy_n_minibatch_iters=16    # we want 16 episodes per batch
 ```
+
+---
+
+## Action space
+
+### Transporter
+
+| Range | Action                                               | Count |
+| ---   | ---                                                  | ---   |
+| 0     | no_op                                                | 1     |
+| 1-40  | Book truck `(idx-1)//N_GHAS` at GHA `(idx-1)%N_GHAS` | 40    |
+| 41-50 | Dispatch truck `action-41`                           | 10    |
+| Total |                                                      | 51    |
+
+### Ghas
+
+| Range | Action                                  | Count |
+| ---   | ---                                     | ---   |
+| 0     | no_op                                   | 1     |
+| 1     | Publish both flows at next windows      | 1     |
+| 2     | Publish both flows an window after next | 1     |
+| Total |                                         | 3     |
+
+### Orchestrator
+
+| Offset                | Value |
+| ---                   | ---   |
+| _ORCH_BOOK_OFFSET     | 1     |
+| _ORCH_DISPATCH_OFFSET | 41    |
+| _ORCH_CANCEL_OFFSET   | 51    |
+| _ORCH_MODIFY_OFFSET   | 91    |
+| last action           | 250   |
+
+| Range  | Action                                                          | Count |
+| ---    | ---                                                             | ---   |
+| 0      | no_op                                                           | 1     |
+| 1-40   | Book truck `t` at gha `g`                                       | 40    |
+| 41-50  | Dispatch truck `t` from origin                                  | 10    |
+| 51-90  | Cancel booking of truck `t` at gha `g`                          | 40    |
+| 91-250 | Modify truck `t` booking `from_gha, to_gha, from_slot, to_slot` | 160   |
+| Total  |                                                                 | 251   |

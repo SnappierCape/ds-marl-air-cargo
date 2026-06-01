@@ -336,10 +336,12 @@ class SchipholCargoEnv(ParallelEnv):
         elif agent == "orchestrator":
             # Full global state: concatenation of all GHA obs + TP3 + time
             i = 0
+            
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
             obs[i] = (np.sin(2 * np.pi * tod) + 1) / 2; i += 1
             obs[i] = (np.cos(2 * np.pi * tod) + 1) / 2; i += 1
+            
             for gha in GHA_IDS:
                 t = self.terminals[gha]
                 obs[i] = t.exp_occupancy(); i += 1
@@ -347,6 +349,21 @@ class SchipholCargoEnv(ParallelEnv):
                 obs[i] = t.exp_queue_norm(); i += 1
                 obs[i] = t.imp_queue_norm(); i += 1
                 obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
+                
+            for t_idx in range(N_PENDING_TRUCKS):
+                pending = self.demand.pending_trucks
+                if t_idx < len(pending):
+                    truck = pending[t_idx]
+                    n_needed = len(truck.stops_remaining)
+                    n_booked = len(truck.booked_slots)
+                    
+                    obs[i] = 1.0 if truck.flow_type == "export" else 0.0; i += 1
+                    obs[i] = n_booked / max(n_needed, 1); i += 1
+                    obs[i] = min(n_needed, 1); i += 1
+                    obs[i] = min(self.sim.now / 1440, 1.0); i += 1
+                
+                else:
+                    i += 4
 
         return obs
 
@@ -358,7 +375,7 @@ class SchipholCargoEnv(ParallelEnv):
         scale = params["marl"]["reward_scale"]
         
         if agent == "orchestrator":
-            r_private = self.kpi.orchestrator_reward(self.tp3)
+            r_private = self.kpi.orchestrator_reward(self.tp3, self.demand)
         elif agent == "transporter":
             r_private = self.kpi.transporter_reward(self.dtp, self.demand)
         elif agent in params["ghas"].keys():
@@ -426,10 +443,10 @@ class SchipholCargoEnv(ParallelEnv):
                     mask[action] = 1
                     
                 # ── Section 2: Dispatch ──────────────────────────────────────
-                action = _ORCH_DISPATCH_OFFSET + (t_idx * N_GHAS) + g_idx
+                action = _ORCH_DISPATCH_OFFSET + t_idx
                 
                 if action < dim:
-                    all_booked = all(s["gha"] in truck.booked_slots for s in truck.manifest)
+                    all_booked = all(s["gha"] in truck.booked_slots for s in truck.stops_remaining)
                     if all_booked:
                         mask[action] = 1
                 
@@ -458,7 +475,7 @@ class SchipholCargoEnv(ParallelEnv):
                         continue
 
                     for to_g, to_gha in enumerate(GHA_IDS):
-                        action = _ORCH_MODIFY_OFFSET + (t_idx * N_GHAS**2) + (from_g * N_GHAS * to_g)
+                        action = _ORCH_MODIFY_OFFSET + (t_idx * N_GHAS**2) + (from_g * N_GHAS) + to_g
                         
                         if action >= dim:
                             continue
@@ -483,14 +500,11 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     def _obs_dim(self, agent: str) -> int:
         if agent == "transporter":
-            # 4 (tp3+time) + 2*N_GHAS (slot counts imp+exp) + 2*N_GHAS (occupancies imp+exp) + N_PENDING_TRUCKS * 4 features
             return 4 + 2 * N_GHAS + 2 * N_GHAS + 4 * N_PENDING_TRUCKS
         elif agent in GHA_IDS:
-            # 11 own + 2*(N_GHAS-1) others
             return 11 + 2 * (N_GHAS - 1)
         elif agent == "orchestrator":
-            # 4 system + 5*N_GHAS per GHA
-            return 4 + 5 * N_GHAS
+            return 4 + 5 * N_GHAS + 4 * N_PENDING_TRUCKS
         raise ValueError(f'Agent {agent} is unknown, please input a known agent')
 
     def _action_dim(self, agent: str) -> int:

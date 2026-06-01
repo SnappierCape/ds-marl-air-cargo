@@ -358,7 +358,7 @@ class SchipholCargoEnv(ParallelEnv):
         scale = params["marl"]["reward_scale"]
         
         if agent == "orchestrator":
-            r_private = 0.0
+            r_private = self.kpi.orchestrator_reward(self.tp3)
         elif agent == "transporter":
             r_private = self.kpi.transporter_reward(self.dtp, self.demand)
         elif agent in params["ghas"].keys():

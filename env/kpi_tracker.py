@@ -29,7 +29,7 @@ from env.infrastructure import CheckpointID, SensorEvent
 from env.dtp_platform import DTPPlatform
 from env.demand import DemandGenerator
 if TYPE_CHECKING:
-    from env.objects import GHATerminal
+    from env.objects import GHATerminal, TP3Buffer
 
 from config.config import load_params
 params = load_params()
@@ -79,6 +79,7 @@ class KPITracker:
         self._prev_no_shows: int = 0
         self._prev_late: int = 0
         self._prev_pending: int = 0
+        self._prev_parked = 0
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT INGESTION — called every MARL step by schiphol_env.py
@@ -213,6 +214,15 @@ class KPITracker:
     def global_reward(self) -> float:
         w = self.w
         return -(w["wpr_global"] * self.wpr() + w["util_std"] * self.utilization_std())
+    
+    def orchestrator_reward(self, tp3: TP3Buffer) -> float:
+        w = self.w
+
+        current_parked = tp3.n_parked()
+        delta_parked = current_parked - self._prev_parked
+        self._prev_parked = current_parked
+
+        return -w["pending_trucks"] * delta_parked
 
     def transporter_reward(self, dtp: DTPPlatform, demand: DemandGenerator) -> float:
         w = self.w

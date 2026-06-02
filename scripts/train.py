@@ -8,6 +8,7 @@
 from pathlib import Path
 
 import torch
+import wandb
 
 from benchmarl.algorithms import MappoConfig
 from benchmarl.experiment import Experiment, ExperimentConfig
@@ -91,6 +92,13 @@ def main():
     print("\nStarting BenchMARL training loop...")
     experiment.run()
     print("\nTraining finished successfully!")
+    
+    # ── Save results ─────────────────────────────────────────────────────────
+    api = wandb.Api()
+    runs = api.runs("ulriconava-main-none/benchmarl", order="-created_at")
+    run = runs[0]
+    df = run.history()
+    df.to_csv("wandb_results.csv", index=False)
     
 if __name__ == "__main__":
     main()

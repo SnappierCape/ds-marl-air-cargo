@@ -172,11 +172,10 @@ class TimeSeriesTracker:
             self.imp_occ[gha].append(t.imp_occupancy())
 
         # DTP phase snapshot
-        phase_count = defaultdict(int)
+        phase_count: Dict[str, int] = defaultdict(int)
         for gha in GHA_IDS:
-            for entries in env.dtp.registry[gha].values():
-                for e in entries:
-                    phase_count[e["phase"]] += 1
+            for phase, count in env.dtp.registry_phase_counts(gha).items():
+                phase_count[phase] += count
         for phase, count in phase_count.items():
             self.dtp_phases[phase].append(count)
 
@@ -294,39 +293,30 @@ def validate_dtp_registry(env: SchipholCargoEnv, step: int, log: ErrorLog) -> No
     available slots still published (shouldn't all dry up before horizon),
     phase enum values are legal.
     """
-    legal_phases = {"available", "booked", "docked", "closed", "no_show"}
+    legal_booking_phases = {"booked", "docked", "closed", "no_show"}
 
     for gha in GHA_IDS:
         tag = f"step {step:>5} | DTP/{gha}"
         # Track which truck_ids are actively booked/docked per GHA
         active: Dict[str, int] = {}   # truck_id → slot_start
 
-        for slot_start, entries in env.dtp.registry[gha].items():
-            for e in entries:
-                # Phase must be a known value
-                if e["phase"] not in legal_phases:
+        for slot_start, truck_id, phase, flow_type in env.dtp.registry_iter_bookings(gha):
+            # Phase must be a known booking value
+            if phase not in legal_booking_phases:
+                log.error(
+                    f"{tag} | unknown phase '{phase}' "
+                    f"at slot_start={slot_start} truck={truck_id}"
+                )
+
+            # A truck must not hold two active bookings at the same GHA
+            if phase in ("booked", "docked"):
+                if truck_id in active:
                     log.error(
-                        f"{tag} | unknown phase '{e['phase']}' "
-                        f"at slot_start={slot_start}"
+                        f"{tag} | truck {truck_id} has TWO active slots: "
+                        f"{active[truck_id]} and {slot_start}"
                     )
-
-                # A truck must not hold two active bookings at the same GHA
-                if e["phase"] in ("booked", "docked") and e["truck_id"] is not None:
-                    tid = e["truck_id"]
-                    if tid in active:
-                        log.error(
-                            f"{tag} | truck {tid} has TWO active slots: "
-                            f"{active[tid]} and {slot_start}"
-                        )
-                    else:
-                        active[tid] = slot_start
-
-                # 'available' entries must not have a truck_id
-                if e["phase"] == "available" and e["truck_id"] is not None:
-                    log.warning(
-                        f"{tag} | 'available' slot at {slot_start} "
-                        f"has truck_id={e['truck_id']} (should be None)"
-                    )
+                else:
+                    active[truck_id] = slot_start
 
 
 def validate_tp3(env: SchipholCargoEnv, step: int, log: ErrorLog) -> None:
@@ -477,9 +467,8 @@ def validate_reset(env: SchipholCargoEnv, obs: dict, infos: dict,
 
     # DTP must have pre-published slots
     total_slots = sum(
-        len(entries)
+        env.dtp.registry_total_entries(gha)
         for gha in GHA_IDS
-        for entries in env.dtp.registry[gha].values()
     )
     if total_slots == 0:
         log.error(f"{tag} | DTP registry is empty after reset — _prepopulate_slots failed")
@@ -679,12 +668,10 @@ def print_report(env: SchipholCargoEnv, ts: TimeSeriesTracker,
     print(DIV)
     phase_totals: Dict[str, int] = defaultdict(int)
     for gha in GHA_IDS:
-        slot_count   = sum(len(v) for v in env.dtp.registry[gha].values())
-        phase_counts: Dict[str, int] = defaultdict(int)
-        for entries in env.dtp.registry[gha].values():
-            for e in entries:
-                phase_counts[e["phase"]] += 1
-                phase_totals[e["phase"]] += 1
+        phase_counts = env.dtp.registry_phase_counts(gha)
+        slot_count   = sum(phase_counts.values())
+        for phase, count in phase_counts.items():
+            phase_totals[phase] += count
         phase_str = "  ".join(f"{k}={v}" for k, v in sorted(phase_counts.items()))
         print(f"  {gha:<15}  {slot_count:>4} entries  |  {phase_str}")
     print(f"  {'TOTAL':<15}  "

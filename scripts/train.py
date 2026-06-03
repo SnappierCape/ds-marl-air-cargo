@@ -35,22 +35,22 @@ def main():
     experiment_config.sampling_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.train_device="cuda" if torch.cuda.is_available() else "cpu"
     experiment_config.max_n_iters=None
-    experiment_config.max_n_frames=17_694_720
-    experiment_config.on_policy_collected_frames_per_batch=138_240
-    experiment_config.on_policy_n_minibatch_iters=16
+    experiment_config.max_n_frames=103_680
+    experiment_config.on_policy_collected_frames_per_batch=34_560
+    experiment_config.on_policy_n_minibatch_iters=4
     experiment_config.on_policy_minibatch_size=8640
     experiment_config.lr=1e-3
     experiment_config.parallel_collection=True
     experiment_config.on_policy_n_envs_per_worker=4
-    experiment_config.evaluation_interval=1_382_400
+    experiment_config.evaluation_interval=34_560
     experiment_config.clip_grad_norm=True
     experiment_config.clip_grad_val=5
     experiment_config.save_folder=EXPERIMENT_DIR
     experiment_config.gamma=0.999
     
-    experiment_config.checkpoint_interval=experiment_config.on_policy_collected_frames_per_batch * 5
-    experiment_config.checkpoint_at_end=True
-    experiment_config.keep_checkpoints_num=3
+    # experiment_config.checkpoint_interval=experiment_config.on_policy_collected_frames_per_batch * 5
+    # experiment_config.checkpoint_at_end=True
+    # experiment_config.keep_checkpoints_num=3
 
     # ── MAPPO config ─────────────────────────────────────────────────────────
     algorithm_config = MappoConfig(

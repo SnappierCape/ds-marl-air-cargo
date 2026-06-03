@@ -252,6 +252,18 @@ class DTPPlatform:
         self._validate_gha(gha)
         # O(1): direct reverse-index lookup instead of nested scan
         return self.truck_index.get(truck_id, {}).get(gha)
+    
+    def upcoming_booking_norm(self, gha: str, n_docks: int, horizon: int) -> float:
+        """Fraction of the docks committed in the next 'horizon' minutes."""
+        now = self.env.now
+        committed = sum(
+            1
+            for slot_start, window in self.registry.get(gha, {}).items()
+            if 0 <= slot_start - now <= horizon
+            for v in window["bookings"].values()
+            if v["phase"] in ("booked", "docked")
+        )
+        return min(committed / n_docks, 1.0) if n_docks > 0 else 0.0
 
     # ─────────────────────────────────────────────────────────────────────────
     # PRIVATE HELPERS

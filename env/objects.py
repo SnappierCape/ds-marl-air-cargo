@@ -206,17 +206,7 @@ class GHATerminal:
         return min(len(self.queue_imp) / max_q, 1.0)
 
     def upcoming_bookings_norm(self, dtp: DTPPlatform, horizon: int) -> float:
-        """Fraction of total docks committed in the next `horizon` minutes."""
-        now  = self.env.now
-        total = self.n_exp + self.n_imp
-        committed = sum(
-            1
-            for slot_start, entries in dtp.registry.get(self.gha, {}).items()
-            if 0 <= slot_start - now <= horizon
-            for entry in entries
-            if entry["phase"] in ("booked", "docked")
-        )
-        return min(committed / total, 1.0) if total > 0 else 0.0
+        return dtp.upcoming_booking_norm(self.gha, self.n_exp + self.n_imp, horizon)
 
 
 # =============================================================================

@@ -198,12 +198,23 @@ class SchipholCargoEnv(ParallelEnv):
                 
                 truck = pending[t_idx]
                 gha = GHA_IDS[g_idx]
+                
+                # Avoid race condition if transporter already booken it in this step
+                if gha in truck.booked_slots:
+                    return
+                if not any(s["gha"] == gha for s in truck.stops_remaining):
+                    return
+                
                 slots = self.dtp.get_available_slots(gha, truck.flow_type, horizon=120)
                 
                 if not slots:
                     return
                 
-                self.dtp.orch_book_slot(gha, slots[0], truck.truck_id, truck.flow_type)
+                chosen_slot = slots[0]
+                self.dtp.orch_book_slot(gha, chosen_slot, truck.truck_id, truck.flow_type)
+                
+                # Sync truck state
+                truck.booked_slots[gha] = chosen_slot
             
             elif _ORCH_DISPATCH_OFFSET <= action < _ORCH_CANCEL_OFFSET:
                 t_idx = action - _ORCH_DISPATCH_OFFSET
@@ -230,6 +241,10 @@ class SchipholCargoEnv(ParallelEnv):
                 
                 self.dtp.orch_cancel_book(gha, slot, truck.truck_id)
                 
+                # Sync truck state
+                if gha in truck.booked_slots:
+                    del truck.booked_slots[gha]
+                    
             elif action >= _ORCH_MODIFY_OFFSET:
                 idx = action - _ORCH_MODIFY_OFFSET
                 t_idx = idx // N_GHAS**2
@@ -248,15 +263,28 @@ class SchipholCargoEnv(ParallelEnv):
                 if from_slot is None:
                     return
                 
+                # Ensure dest is available
+                if from_gha != to_gha:
+                    if to_gha in truck.booked_slots:
+                        return
+                    if not any(s["gha"] == to_gha for s in truck.stops_remaining):
+                        return
+                    
                 slots = self.dtp.get_available_slots(to_gha, truck.flow_type, horizon=120)
                 if from_gha == to_gha:
                     slots = [s for s in slots if s != from_slot]
                 if not slots:
                     return
                 
+                chosen_slot = slots[0]
                 self.dtp.orch_modify_book(
-                    truck.truck_id, from_gha, from_slot, to_gha, slots[0], truck.flow_type
+                    truck.truck_id, from_gha, from_slot, to_gha, chosen_slot, truck.flow_type
                 )
+                
+                # Sync truck state
+                if from_gha in truck.booked_slots:
+                    del truck.booked_slots[from_gha]
+                truck.booked_slots[to_gha] = chosen_slot
 
     # ─────────────────────────────────────────────────────────────────────────
     # OBSERVATION SPACE
@@ -297,7 +325,7 @@ class SchipholCargoEnv(ParallelEnv):
                     n_needed = len(truck.manifest)
                     n_booked = len(truck.booked_slots)
                     obs[i] = 1.0 if truck.flow_type == "export" else 0.0; i += 1
-                    obs[i] = n_booked / max(n_needed, 1); i += 1
+                    obs[i] = min(n_booked / max(n_needed, 1), 1.0); i += 1
                     obs[i] = min(n_needed / 4, 1.0); i += 1
                     obs[i] = min(self.sim.now / 1440, 1.0); i += 1
                 else:
@@ -358,7 +386,7 @@ class SchipholCargoEnv(ParallelEnv):
                     n_booked = len(truck.booked_slots)
                     
                     obs[i] = 1.0 if truck.flow_type == "export" else 0.0; i += 1
-                    obs[i] = n_booked / max(n_needed, 1); i += 1
+                    obs[i] = min(n_booked / max(n_needed, 1), 1.0); i += 1
                     obs[i] = min(n_needed, 1); i += 1
                     obs[i] = min(self.sim.now / 1440, 1.0); i += 1
                 
@@ -479,6 +507,13 @@ class SchipholCargoEnv(ParallelEnv):
                         
                         if action >= dim:
                             continue
+                        
+                        # Check dest availability
+                        if from_gha != to_gha:
+                            if to_gha in truck.booked_slots:
+                                continue
+                            if not any(s["gha"] == to_gha for s in truck.stops_remaining):
+                                continue
 
                         available_at_dest = self.dtp.get_available_slots(
                             to_gha, truck.flow_type, horizon=120

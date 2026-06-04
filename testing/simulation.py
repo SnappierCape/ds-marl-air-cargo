@@ -385,6 +385,26 @@ def print_report(env: SchipholCargoEnv, ts: TimeSeriesTracker,
     for agent, cov_series in ts.mask_coverage.items():
         print(f"  {agent:<25}  mean={np.mean(cov_series):.2%}")
 
+    print(header("  Action distribution (top 5 non-no_op per agent)"))
+    print(DIV)
+    for agent in env.agents:
+        counts = action_counts.get(agent, {})
+        total  = sum(counts.values())
+        if total == 0:
+            print(f"  {agent:<25}  no actions recorded")
+            continue
+
+        no_op_count = counts.get(0, 0)
+        no_op_pct   = no_op_count / total
+
+        top5 = sorted(
+            [(a, c) for a, c in counts.items() if a != 0],
+            key=lambda x: x[1], reverse=True
+        )[:5]
+        top_str = "  ".join(f"a{a}={c}x({c/total:.0%})" for a, c in top5)
+
+        print(f"  {agent:<25}  no_op={no_op_pct:.0%}  |  {top_str}")
+
     print(header("  DTP registry snapshot"))
     print(DIV)
     

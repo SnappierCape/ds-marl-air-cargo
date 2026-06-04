@@ -147,19 +147,42 @@ class DTPPlatform:
         if self._is_docked(from_gha, from_start, truck_id):
             return False
 
-        # Check space in destination before touching the source
-        if self._taken_docks_at(to_gha, to_start, flow_type) >= self.cfg["ghas"][to_gha][flow_type]:
+        if from_gha == to_gha and from_start == to_start:
+            return True
+        
+        # Check destination availability
+        taken_slots = self._taken_docks_at(to_gha, to_start, flow_type)
+        
+        # Check overlapping
+        from_end = from_start + self.slot_duration
+        to_end = to_start + self.slot_duration
+        
+        if from_gha == to_gha and (from_start < to_end and to_start < from_end):
+            # Own booking will be vacated
+            taken_slots -= 1
+            
+        if taken_slots >= self.cfg["ghas"][to_gha][flow_type]:
+            return False
+        
+        # Save old booking metadata before atomic swap
+        from_window = self.registry[from_gha].get(from_start, {})
+        
+        if truck_id not in from_window.get("bookings", {}):
             return False
 
         # Atomic swap
         if not self._free_slot(from_gha, from_start, truck_id):
             return False
-
-        # Attempt to assign destination slot
+        
+        # Attemp to assign new slot
         if not self._assign_slot(to_gha, to_start, truck_id, flow_type):
-            self._assign_slot(from_gha, from_start, truck_id, flow_type)
+            # If assignment fails, force back the truck in the original slot
+            # bypassing _assign_slot()
+            from_window["available"][flow_type] = max(0, from_window["available"].get(flow_type, 0) - 1)
+            from_window["bookings"][truck_id] = {"phase": "booked", "flow_type": flow_type}
+            self.truck_index.setdefault(truck_id, {})[from_gha] = from_start
             return False
-
+        
         return True
 
     # ─────────────────────────────────────────────────────────────────────────

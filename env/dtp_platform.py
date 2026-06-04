@@ -251,6 +251,7 @@ class DTPPlatform:
     # ─────────────────────────────────────────────────────────────────────────
     # QUERY HELPERS — called by demand.py and schiphol_env.py
     # ─────────────────────────────────────────────────────────────────────────
+    @profile
     def get_available_slots(self, gha: str, flow_type: str, horizon: int = 480) -> List[int]:
         self._validate_gha(gha)
         if horizon <= 0:

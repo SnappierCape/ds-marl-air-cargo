@@ -145,7 +145,6 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     # ACTIONS
     # ─────────────────────────────────────────────────────────────────────────
-    @profile
     def _apply_action(self, agent: str, action: int) -> None:
         """Translate integer action into a DTP method call."""
         if action == 0:
@@ -290,7 +289,6 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     # OBSERVATION SPACE
     # ─────────────────────────────────────────────────────────────────────────
-    @profile
     def _get_obs(self, agent: str) -> np.ndarray:
         """Build the observation vector for one agent."""
         obs = np.zeros(self._obs_dim(agent), dtype=np.float32)
@@ -426,7 +424,6 @@ class SchipholCargoEnv(ParallelEnv):
     # ─────────────────────────────────────────────────────────────────────────
     # ILLEGAL ACTION MASKING
     # ─────────────────────────────────────────────────────────────────────────
-    @profile
     def _get_mask(self, agent: str) -> np.ndarray:
         """1 = valid action, 0 = masked. Action 0 (no_op) is always valid."""
         dim = self._action_dim(agent)

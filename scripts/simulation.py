@@ -274,7 +274,7 @@ def validate_tp3(env: SchipholCargoEnv, step: int, log: ErrorLog) -> None:
 
 def validate_demand_pipeline(env: SchipholCargoEnv, step: int, log: ErrorLog) -> None:
     tag = f"step {step:>5} | Demand"
-    pending = env.demand.pending_trucks
+    pending = list(env.demand.pending_trucks.values())
  
     WARN_KEY = "pending_high"
     if len(pending) > 500:
@@ -443,6 +443,7 @@ def print_report(env: SchipholCargoEnv, ts: TimeSeriesTracker,
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN RUNNER
 # ─────────────────────────────────────────────────────────────────────────────
+@profile
 def run_simulation(with_orchestrator: bool,
                    n_steps: int,
                    log_interval: int = 100,

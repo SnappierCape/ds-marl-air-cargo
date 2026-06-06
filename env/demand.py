@@ -65,7 +65,7 @@ class DemandGenerator:
         self._travel_time = d["origin_travel_time"]
 
         self._truck_counter = 0
-        self.pending_trucks: List[Truck] = []
+        self.pending_trucks: Dict[str, Truck] = {}
         self._dispatch_events: Dict[str, simpy.Event] = {}
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ class DemandGenerator:
                 truck = self._create_truck()
                 
                 # Add to pending list so Transporter can see it
-                self.pending_trucks.append(truck)
+                self.pending_trucks[truck.truck_id] = truck
                 
                 # Create the dispatch event
                 dispatch_event = self.env.event()
@@ -204,7 +204,7 @@ class DemandGenerator:
             return False
 
         # Remove from pending list
-        self.pending_trucks = [t for t in self.pending_trucks if t.truck_id != truck_id]
+        self.pending_trucks.pop(truck_id, None)
 
         # Fire the dispatch gate — the frozen journey process wakes up
         event = self._dispatch_events.pop(truck_id, None)
@@ -342,10 +342,7 @@ class DemandGenerator:
         return max(params["road"]["segments"].values())
     
     def _get_pending_truck(self, truck_id: str) -> Optional[Truck]:
-        for truck in self.pending_trucks:
-            if truck.truck_id == truck_id:
-                return truck
-        return None
+        return self.pending_trucks.get(truck_id, None)
 
     def _record_booking(self, truck: Truck, gha: str, slot_start: int) -> bool:
         truck.booked_slots[gha] = slot_start

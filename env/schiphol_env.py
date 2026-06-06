@@ -158,7 +158,7 @@ class SchipholCargoEnv(ParallelEnv):
                 truck_idx = idx // N_GHAS
                 gha_idx = idx %  N_GHAS
                 gha = GHA_IDS[gha_idx]
-                pending = self.demand.pending_trucks
+                pending = list(self.demand.pending_trucks.values())
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
                     self.demand.book_one_slot(truck.truck_id, gha)
@@ -166,7 +166,7 @@ class SchipholCargoEnv(ParallelEnv):
             elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
                 # Decode: which truck to dispatch
                 truck_idx = action - N_BOOK_ACTIONS - 1
-                pending = self.demand.pending_trucks
+                pending = list(self.demand.pending_trucks.values())
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
                     self.demand.dispatch_truck(truck.truck_id)
@@ -183,7 +183,7 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
-            pending = self.demand.pending_trucks[:N_PENDING_TRUCKS]
+            pending = list(self.demand.pending_trucks.values())[:N_PENDING_TRUCKS]
             
             if action == 0:
                 return
@@ -327,7 +327,7 @@ class SchipholCargoEnv(ParallelEnv):
 
             # Per-pending-truck features — gives agent context about its fleet
             for t_idx in range(N_PENDING_TRUCKS):
-                pending = self.demand.pending_trucks
+                pending = list(self.demand.pending_trucks.values())
                 if t_idx < len(pending):
                     truck = pending[t_idx]
                     n_needed = len(truck.manifest)
@@ -387,7 +387,7 @@ class SchipholCargoEnv(ParallelEnv):
                 obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
                 
             for t_idx in range(N_PENDING_TRUCKS):
-                pending = self.demand.pending_trucks
+                pending = list(self.demand.pending_trucks.values())
                 if t_idx < len(pending):
                     truck = pending[t_idx]
                     n_needed = len(truck.stops_remaining)
@@ -439,7 +439,7 @@ class SchipholCargoEnv(ParallelEnv):
             return _avail[key]
 
         if agent == "transporter":
-            pending = self.demand.pending_trucks
+            pending = list(self.demand.pending_trucks.values())
 
             # Book actions: valid if truck needs this GHA and has no booking there yet
             for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
@@ -467,7 +467,7 @@ class SchipholCargoEnv(ParallelEnv):
                     mask[i + 1] = 1
 
         elif agent == "orchestrator":
-            pending = self.demand.pending_trucks[:N_PENDING_TRUCKS]
+            pending = list(self.demand.pending_trucks.values())[:N_PENDING_TRUCKS]
             
             for t_idx, truck in enumerate(pending):
                 stops_ghas = {s["gha"] for s in truck.stops_remaining}

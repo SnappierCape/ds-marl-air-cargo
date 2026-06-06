@@ -158,7 +158,7 @@ class DemandGenerator:
     # ─────────────────────────────────────────────────────────────────────────
     # TRANSPORTER AGENT INTERFACE
     # ─────────────────────────────────────────────────────────────────────────
-    def book_one_slot(self, truck_id: str, gha: str, flow_type: str) -> bool:
+    def book_one_slot(self, truck_id: str, gha: str) -> bool:
         """Called by the Transporter agent action handler in schiphol_env.py."""
         truck = self._get_pending_truck(truck_id)
         if truck is None:

@@ -161,7 +161,7 @@ class SchipholCargoEnv(ParallelEnv):
                 pending = self.demand.pending_trucks
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
-                    self.demand.book_one_slot(truck.truck_id, gha, truck.flow_type)
+                    self.demand.book_one_slot(truck.truck_id, gha)
 
             elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
                 # Decode: which truck to dispatch

@@ -199,7 +199,7 @@ class SchipholCargoEnv(ParallelEnv):
                 truck = pending[t_idx]
                 gha = GHA_IDS[g_idx]
                 
-                # Avoid race condition if transporter already booken it in this step
+                # Avoid race condition if transporter already booked it in this step
                 if gha in truck.booked_slots:
                     return
                 if not any(s["gha"] == gha for s in truck.stops_remaining):
@@ -419,7 +419,7 @@ class SchipholCargoEnv(ParallelEnv):
         else:
             raise ValueError(f'Agent "{agent}" is unknown.')
         
-        return scale * ((1 - self.alpha) * r_private + self.alpha * r_global)
+        return scale * (self.alpha * r_private + (1 - self.alpha) * r_global)
 
     # ─────────────────────────────────────────────────────────────────────────
     # ILLEGAL ACTION MASKING

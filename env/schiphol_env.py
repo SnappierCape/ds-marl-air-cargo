@@ -152,13 +152,14 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── Transporter ──────────────────────────────────────────────────────
         if agent == "transporter":
+            pending = list(self.demand.pending_trucks.values())
+            
             if 1 <= action <= N_BOOK_ACTIONS:
                 # Decode: which truck, which GHA
                 idx = action - 1
                 truck_idx = idx // N_GHAS
                 gha_idx = idx %  N_GHAS
                 gha = GHA_IDS[gha_idx]
-                pending = list(self.demand.pending_trucks.values())
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
                     self.demand.book_one_slot(truck.truck_id, gha)
@@ -166,7 +167,6 @@ class SchipholCargoEnv(ParallelEnv):
             elif N_BOOK_ACTIONS + 1 <= action <= N_BOOK_ACTIONS + N_DISPATCH_ACTIONS:
                 # Decode: which truck to dispatch
                 truck_idx = action - N_BOOK_ACTIONS - 1
-                pending = list(self.demand.pending_trucks.values())
                 if truck_idx < len(pending):
                     truck = pending[truck_idx]
                     self.demand.dispatch_truck(truck.truck_id)
@@ -267,7 +267,7 @@ class SchipholCargoEnv(ParallelEnv):
                 if from_gha != to_gha:
                     if to_gha in truck.booked_slots:
                         return
-                    if not any(s["gha"] == to_gha for s in truck.stops_remaining):
+                    if not any(s["gha"] == to_gha for s in truck.stops_remaining):    # perf
                         return
                     
                 slots = self.dtp.get_available_slots(to_gha, truck.flow_type, horizon=120)
@@ -294,6 +294,8 @@ class SchipholCargoEnv(ParallelEnv):
         obs = np.zeros(self._obs_dim(agent), dtype=np.float32)
         tod = (self.sim.now % 1440) / 1440    # time of day normalised
         
+        pending = list(self.demand.pending_trucks.values())
+        
         # Cache available slots for this step to save execution time
         _avail: Dict = {}
         def avail(gha, flow_type, horizon):
@@ -303,7 +305,7 @@ class SchipholCargoEnv(ParallelEnv):
             return _avail[key]
 
         # ── Transporter ──────────────────────────────────────────────────────
-        if agent == "transporter":
+        if agent == "transporter":            
             i = 0
             obs[i] = self.tp3.occupancy_ratio(); i += 1
             obs[i] = min(self.tp3.n_overflow() / 20, 1.0); i += 1
@@ -327,7 +329,6 @@ class SchipholCargoEnv(ParallelEnv):
 
             # Per-pending-truck features — gives agent context about its fleet
             for t_idx in range(N_PENDING_TRUCKS):
-                pending = list(self.demand.pending_trucks.values())
                 if t_idx < len(pending):
                     truck = pending[t_idx]
                     n_needed = len(truck.manifest)
@@ -387,7 +388,6 @@ class SchipholCargoEnv(ParallelEnv):
                 obs[i] = t.upcoming_bookings_norm(self.dtp, horizon=45); i += 1
                 
             for t_idx in range(N_PENDING_TRUCKS):
-                pending = list(self.demand.pending_trucks.values())
                 if t_idx < len(pending):
                     truck = pending[t_idx]
                     n_needed = len(truck.stops_remaining)
@@ -443,7 +443,7 @@ class SchipholCargoEnv(ParallelEnv):
 
             # Book actions: valid if truck needs this GHA and has no booking there yet
             for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
-                needed = {s["gha"] for s in truck.stops_remaining}
+                needed = {s["gha"] for s in truck.stops_remaining}    # perf
                 for g_idx, gha in enumerate(GHA_IDS):
                     if gha in needed and gha not in truck.booked_slots:
                         if avail(gha, truck.flow_type, horizon=120):
@@ -453,7 +453,7 @@ class SchipholCargoEnv(ParallelEnv):
 
             # Dispatch actions: valid only if ALL stops for this truck are booked
             for t_idx, truck in enumerate(pending[:N_PENDING_TRUCKS]):
-                needed = {s["gha"] for s in truck.stops_remaining}
+                needed = {s["gha"] for s in truck.stops_remaining}    # perf
                 booked = set(truck.booked_slots.keys())
                 if needed.issubset(booked):
                     action = N_BOOK_ACTIONS + t_idx + 1

@@ -369,17 +369,15 @@ class DTPPlatform:
         [new_start, new_start + slot_duration). Used to enforce capacity
         across overlapping slot windows.
         """
-        count = 0
-        new_end = new_start + self.slot_duration
-
-        for existing_start, window in self.registry[gha].items():
-            existing_end = existing_start + self.slot_duration
-            if existing_start < new_end and new_start < existing_end:
-                count += sum(
-                    1 for v in window["bookings"].values()
-                    if v["phase"] in ("booked", "docked")
-                    and v["flow_type"] == flow_type
-                )
+        window = self.registry[gha].get(new_start)
+        if window is None:
+            return 0
+        
+        count += sum(
+            1 for v in window["bookings"].values()
+            if v["phase"] in ("booked", "docked") and v["flow_type"] == flow_type
+        )
+        
         return count
 
     def _total_published_at(self, gha: str, new_start: int, flow_type: str) -> int:
@@ -387,18 +385,14 @@ class DTPPlatform:
         Counts all slots (available, booked, or docked) during the window.
         This represents the total number of docks 'claimed' by the platform.
         """
-        count = 0
-        new_end = new_start + self.slot_duration
-
-        for existing_start, window in self.registry[gha].items():
-            existing_end = existing_start + self.slot_duration
-            if existing_start < new_end and new_start < existing_end:
-                # Available capacity is stored as a plain counter — O(1) read
-                count += window["available"].get(flow_type, 0)
-                # Add committed docks (booked / docked); closed / no_show are free again
-                count += sum(
-                    1 for v in window["bookings"].values()
-                    if v["phase"] in ("booked", "docked")
-                    and v["flow_type"] == flow_type
-                )
+        window = self.registry[gha].get(new_start)
+        if window is None:
+            return 0
+        
+        count = window["available"].get(flow_type, 0)
+        count += sum(
+            1 for v in window["bookings"].values()
+            if v["phase"] in ("booked", "docked") and v["flow_type"] == flow_type
+        )
+        
         return count

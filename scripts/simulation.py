@@ -282,7 +282,7 @@ def validate_demand_pipeline(env: SchipholCargoEnv, step: int, log: ErrorLog) ->
     elif len(pending) < 400:
         log.clear_warning(WARN_KEY)
  
-    for truck in pending:
+    for truck in pending.values():
         manifest_ghas = {s["gha"] for s in truck.manifest}
         booked_ghas   = set(truck.booked_slots.keys())
         if booked_ghas - manifest_ghas:
@@ -443,6 +443,7 @@ def print_report(env: SchipholCargoEnv, ts: TimeSeriesTracker,
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN RUNNER
 # ─────────────────────────────────────────────────────────────────────────────
+@profile
 def run_simulation(with_orchestrator: bool,
                    n_steps: int,
                    log_interval: int = 100,

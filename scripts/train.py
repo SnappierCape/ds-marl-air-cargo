@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 import wandb
+import pandas as pd
 
 from benchmarl.algorithms import MappoConfig
 from benchmarl.experiment import Experiment, ExperimentConfig
@@ -98,6 +99,9 @@ def main():
     runs = api.runs("ulriconava-main-none/benchmarl", order="-created_at")
     run = runs[0]
     df = run.history()
+    df = pd.DataFrame(df)
+    df["epoch_n"] = df.index + 1
+    df = df[df.index % 5 == 0]
     df.to_csv("wandb_results.csv", index=False)
     
 if __name__ == "__main__":

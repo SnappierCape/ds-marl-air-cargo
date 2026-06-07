@@ -64,12 +64,17 @@ on_policy_n_minibatch_iters=16    # we want 16 episodes per batch
 
 ### Ghas
 
-| Range | Action                                  | Count |
-| ---   | ---                                     | ---   |
-| 0     | no_op                                   | 1     |
-| 1     | Publish both flows at next windows      | 1     |
-| 2     | Publish both flows an window after next | 1     |
-| Total |                                         | 3     |
+Calculations:
+- Slot duration = 45 min
+- Publishing horizon = 72 h = 4320 min
+- Slots = 4320 / 45 = 96 slots
+
+| Range  | Action                                  | Count |
+| ---    | ---                                     | ---   |
+| 0      | no_op                                   | 1     |
+| 1-96   | Publish `export` slots                  | 96    |
+| 97-192 | Publish `import` slots                  | 96    |
+| Total  |                                         | 193   |
 
 ### Orchestrator
 

@@ -43,6 +43,11 @@ _ORCH_DISPATCH_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS
 _ORCH_CANCEL_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS + N_PENDING_TRUCKS
 _ORCH_MODIFY_OFFSET = 1 + N_PENDING_TRUCKS * N_GHAS + N_PENDING_TRUCKS + N_PENDING_TRUCKS * N_GHAS
 
+# GHAs specific helpers
+_GHA_N_SLOTS = params["dtp_rules"]["lead_time"] // params["dtp_rules"]["slot_duration"]
+_GHA_EXP_OFFSET = 1 + _GHA_N_SLOTS
+_GHA_IMP_OFFSET = 1 + 2 * _GHA_N_SLOTS
+
 # =============================================================================
 # MAIN CLASS
 # =============================================================================
@@ -173,13 +178,20 @@ class SchipholCargoEnv(ParallelEnv):
 
         # ── GHA ──────────────────────────────────────────────────────────────
         elif agent in GHA_IDS:
-            # Action 1: publish next slot window
-            # Action 2: publish the slot window after that
-            next_windows = self._next_publishable_windows()
-            idx = action - 1
-            if idx < len(next_windows):
-                for flow_type in ("import", "export"):
-                    self.dtp.publish_slot(agent, next_windows[idx], flow_type)
+            if action == 0:
+                return
+            
+            slot_dur = params["dtp_rules"]["slot_duration"]
+            
+            if 1 <= action <= _GHA_IMP_OFFSET:
+                flow_type = "export" if action <= _GHA_EXP_OFFSET else "import"
+                idx = (action - _GHA_N_SLOTS - 1) if flow_type == "import" else (action - 1)
+                
+                # Map to simulation time
+                baseline_time = (self.sim.now // slot_dur) * slot_dur
+                target_slot_start = baseline_time + (idx * slot_dur)
+                
+                self.dtp.publish_slot(agent, target_slot_start, flow_type)
 
         # ── Orchestrator ─────────────────────────────────────────────────────
         elif agent == "orchestrator":
@@ -461,11 +473,37 @@ class SchipholCargoEnv(ParallelEnv):
                         mask[action] = 1
 
         elif agent in GHA_IDS:
-            windows = self._next_publishable_windows()
-            for i, _ in enumerate(windows):
-                if i + 1 < dim:
-                    mask[i + 1] = 1
-
+            slot_dur = params["dtp_rules"]["slot_duration"]
+            baseline_time = (self.sim.now // slot_dur) * slot_dur
+            gha_registry = self.dtp.registry[agent]
+            
+            freeze_window = params["dtp_rules"]["freeze_time"]
+            lead_time = params["dtp_rules"]["lead_time"]
+            
+            for idx in range(_GHA_N_SLOTS):
+                target_slot_start = baseline_time + (idx * slot_dur)
+                time_to_slot = target_slot_start - self.sim.now
+                
+                if freeze_window <= time_to_slot <= lead_time:
+                    
+                    # Evaluate exp action
+                    exp_action = idx + 1
+                    if exp_action <= _GHA_EXP_OFFSET:
+                        n_docks_exp = params["ghas"][agent]["export"]
+                        total_published_exp = self.dtp._total_published_at(agent, target_slot_start, "export")
+                        
+                        if total_published_exp < n_docks_exp:
+                            mask[exp_action] = 1
+                            
+                    # Evaluate imp action
+                    imp_action = _GHA_N_SLOTS + idx + 1
+                    if imp_action <= _GHA_IMP_OFFSET:
+                        n_docks_imp = params["ghas"][agent]["import"]
+                        total_published_imp = self.dtp._total_published_at(agent, target_slot_start, "import")
+                        
+                        if total_published_imp < n_docks_imp:
+                            mask[imp_action] = 1
+                
         elif agent == "orchestrator":
             pending = list(self.demand.pending_trucks.values())[:N_PENDING_TRUCKS]
             
@@ -561,7 +599,7 @@ class SchipholCargoEnv(ParallelEnv):
         if agent == "transporter":
             return TRANSPORTER_ACTION_DIM
         elif agent in GHA_IDS:
-            return 3    # no_op, publish_next, publish_one_after
+            return _GHA_IMP_OFFSET
         elif agent == "orchestrator":
             return (
                 1    # no_op

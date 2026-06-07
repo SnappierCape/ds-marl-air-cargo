@@ -270,8 +270,8 @@ class KPITracker:
         
         slot_dur = params["dtp_rules"]["slot_duration"]
         horizon = 180    # hardcoded
-        n_exp = len(dtp.get_available_slots(gha, "export", horizon=horizon))
-        n_imp = len(dtp.get_available_slots(gha, "import", horizon=horizon))
+        n_exp = len(dtp.get_published_slots(gha, "export", horizon=horizon))
+        n_imp = len(dtp.get_published_slots(gha, "import", horizon=horizon))
         max_exp = max(1, params["ghas"][gha]["export"]) * max(1, horizon // slot_dur)
         max_imp = max(1, params["ghas"][gha]["import"]) * max(1, horizon // slot_dur)
         slot_readiness = (n_exp / max_exp + n_imp / max_imp)

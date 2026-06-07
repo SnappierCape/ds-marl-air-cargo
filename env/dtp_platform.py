@@ -264,8 +264,25 @@ class DTPPlatform:
                 continue
             if slot_start - now > horizon:
                 continue
-            # O(1): check the available counter directly instead of scanning the list
             if window["available"].get(flow_type, 0) > 0:
+                result.append(slot_start)
+
+        return sorted(result)
+    
+    def get_published_slots(self, gha: str, flow_type: str, horizon: int = 480) -> List[int]:
+        self._validate_gha(gha)
+        if horizon <= 0:
+            raise ValueError(f'Horizon: {horizon}. Please insert positive horizon.')
+
+        now = self.env.now
+        result = []
+
+        for slot_start, window in self.registry[gha].items():
+            if slot_start - now < self.freeze_time:
+                continue
+            if slot_start - now > horizon:
+                continue
+            if flow_type in window["available"] or flow_type in window.get("total", {}):
                 result.append(slot_start)
 
         return sorted(result)

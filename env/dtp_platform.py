@@ -373,7 +373,7 @@ class DTPPlatform:
         if window is None:
             return 0
         
-        count += sum(
+        count = sum(
             1 for v in window["bookings"].values()
             if v["phase"] in ("booked", "docked") and v["flow_type"] == flow_type
         )

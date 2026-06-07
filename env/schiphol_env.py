@@ -475,34 +475,47 @@ class SchipholCargoEnv(ParallelEnv):
         elif agent in GHA_IDS:
             slot_dur = params["dtp_rules"]["slot_duration"]
             baseline_time = (self.sim.now // slot_dur) * slot_dur
-            gha_registry = self.dtp.registry[agent]
             
             freeze_window = params["dtp_rules"]["freeze_time"]
             lead_time = params["dtp_rules"]["lead_time"]
+            
+            gha_registry = self.dtp.registry[agent]
+            gha_cfg = params["ghas"][agent]
+            n_docks_exp = gha_cfg["export"]
+            n_docks_imp = gha_cfg["import"]
             
             for idx in range(_GHA_N_SLOTS):
                 target_slot_start = baseline_time + (idx * slot_dur)
                 time_to_slot = target_slot_start - self.sim.now
                 
                 if freeze_window <= time_to_slot <= lead_time:
+                    window = gha_registry.get(target_slot_start)
                     
+                    if window is not None:
+                        total_published_exp = window["available"].get("export", 0)
+                        total_published_imp = window["available"].get("import", 0)
+                        
+                        # Count active bookings for bot flows in a single pass
+                        for booking in window["bookings"].values():
+                            if booking["phase"] in ("booked", "docked"):
+                                if booking["flow_type"] == "export":
+                                    total_published_exp += 1
+                                elif booking["flow_type"] == "import":
+                                    total_published_imp += 1
+                                    
+                    else:
+                        total_published_imp = 0
+                        total_published_exp = 0
+                        
                     # Evaluate exp action
                     exp_action = idx + 1
-                    if exp_action <= _GHA_EXP_OFFSET:
-                        n_docks_exp = params["ghas"][agent]["export"]
-                        total_published_exp = self.dtp._total_published_at(agent, target_slot_start, "export")
-                        
-                        if total_published_exp < n_docks_exp:
-                            mask[exp_action] = 1
+                    if exp_action <= _GHA_EXP_OFFSET and total_published_exp < n_docks_exp:
+                        mask[exp_action] = 1
                             
                     # Evaluate imp action
                     imp_action = _GHA_N_SLOTS + idx + 1
-                    if imp_action <= _GHA_IMP_OFFSET:
-                        n_docks_imp = params["ghas"][agent]["import"]
-                        total_published_imp = self.dtp._total_published_at(agent, target_slot_start, "import")
-                        
-                        if total_published_imp < n_docks_imp:
-                            mask[imp_action] = 1
+                    if imp_action <= _GHA_IMP_OFFSET and total_published_imp < n_docks_imp:
+                        mask[imp_action] = 1
                 
         elif agent == "orchestrator":
             pending = list(self.demand.pending_trucks.values())[:N_PENDING_TRUCKS]

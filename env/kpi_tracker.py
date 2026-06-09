@@ -269,7 +269,7 @@ class KPITracker:
         self._prev_proc[gha] = total_proc
         
         slot_dur = params["dtp_rules"]["slot_duration"]
-        horizon = 180    # hardcoded
+        horizon = 480    # hardcoded
         n_exp = len(dtp.get_published_slots(gha, "export", horizon=horizon))
         n_imp = len(dtp.get_published_slots(gha, "import", horizon=horizon))
         max_exp = max(1, params["ghas"][gha]["export"]) * max(1, horizon // slot_dur)

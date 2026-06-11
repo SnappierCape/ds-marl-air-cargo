@@ -10,6 +10,7 @@
 # =============================================================================
 # GHA DOCKS
 # =============================================================================
+# This section sets the number of dock doors for each gha divided between import and export
 ghas:
   dnata:
     total: 50
@@ -29,31 +30,19 @@ ghas:
     export: 10
 
 # =============================================================================
-# TP3
-# =============================================================================
-tp3:
-  capacity: 140
-
-# =============================================================================
-# SERVICE TIME
+# DOCK AVERAGE PROCESSING TIME
 # =============================================================================
 service_time:
-  export:
-    mu: 3.5
-    sigma: 0.4
-    bounds: [11, 180]
-  import:
-    mu: 2.8
-    sigma: 0.3
-    bounds: [8, 120]
+  export: 35
+  import: 17
 
 # =============================================================================
 # ROAD NETWORK
 # =============================================================================
+# This section determines the average time it takes to drive a truck from a node to another in the 
+# Schiphol perimeter. The "nodes" section binds every node to its name. Example "N3_N4" is the time from 
+# klm to wfs.
 road:
-  sigma: 0.20
-  lbound: 0.5
-  ubound: 3
   segments:
     N0_N1: 2.0
     N0_N2: 2.0
@@ -81,54 +70,31 @@ road:
 # =============================================================================
 # DEMAND MODEL
 # =============================================================================
+# This section sets the assumptions for the arrival rate of the trucks.
 demand:
-  arrival_rate: 0.5
-  peak_multiplier: 4
-  peak_window: [900, 1050]
-  ramp_dur: 60
+  arrival_rate: 0.5    # trucks/minute
+  peak_window: [900, 1050]    # in minutes (currently from 15:00 to 17:30)
+
+  # The percentage of the total parcels divided between exp and imp
   flow_split:
     export: 0.60
     import: 0.40
+
+  # This one is tricky, the 4 numbers are the probabilities (expressed in percentage)
+  # of a truck doing a multi-stop route. Respectively the probabilities of doing 1, 2, 3 or 4 stops.
   multi_stop_probs: [0.10, 0.30, 0.40, 0.20]
+
+  # This is the percentage of trucks coming from the 4 different origins
   origin_split:
     rfs: 0.25
     nl: 0.35
     forwarder: 0.30
     tp3: 0.10
+
+  # This is the average travel time from each of the 4 origins to the main gate (in minutes)
+  # The 2 numbers represent min and max, the system samples randomly inside this range
   origin_travel_time:
     rfs: [15, 90]
     nl: [30, 180]
     forwarder: [20, 100]
     tp3: [0, 2]
-  parcels_min: 5
-  parcels_max: 50
-  max_tp3_wait: 360
-
-# =============================================================================
-# MARL HYPERPARAMETERS
-# =============================================================================
-marl:
-  step_min: 1
-  alpha: 0.5
-  gamma: 0.99
-  reward_weights:
-    parcel_on_time: 2.0
-    wait_per_min: 0.05
-    missed_slot: 10.0
-    no_show: 5.0
-    dock_util: 5.0
-    queue_per_step: 0.1
-    wpr_global: 1.0
-    util_std: 0.5
-    pending_trucks: 0.005
-    slot_readiness: 0.5
-  reward_scale: 0.01
-
-# =============================================================================
-# BOOKING RULES
-# =============================================================================
-dtp_rules:
-  priority_window: 10
-  slot_duration: 45
-  lead_time: 4320
-  freeze_time: 90

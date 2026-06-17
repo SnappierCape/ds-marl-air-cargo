@@ -30,6 +30,6 @@ cols_to_keep = [
 # df = df[cols_to_keep]
 
 df["num_epoch"] = df.index + 1
-df = df[df["num_epoch"] % 5 == 0] 
+# df = df[df["num_epoch"] % 5 == 0] 
 
 df.to_csv("wandb_export.csv", index=False)

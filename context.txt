@@ -1,0 +1,293 @@
+Methodology
+Research Design: Design Science Research (DSR)
+This research follows the Design Science Research (DSR) methodology. DSR is appropriate when the goal is to build and evaluate a new artifact that solves a real problem. In this case, the artifact is a multi-agent reinforcement learning system for dynamic slot allocation at Schiphol Airport. The research does not simply observe or describe the existing logistics system. It designs an optimization framework, tests it in a controlled environment, and evaluates whether it works.
+DSR is structured around a cycle of four phases. Each phase is described below, together with how it was executed in this thesis.
+Problem Identification
+The problem is established in the Introduction and Literature Review. Landside logistics at Schiphol suffers from fragmented decision-making, uncoordinated truck arrivals, and congestion at GHA dock facilities. The literature review shows that existing solutions — static slot booking systems and first-come-first-served scheduling — cannot handle the stochastic nature of truck arrivals in a multi-GHA environment. This gap motivates the design of an AI-driven solution.
+Environment Design
+The original plan for this phase was to collect real operational data from Schiphol stakeholders (eLink, Cargonaut, ACN) and use it to calibrate the simulation. This was not possible due to data privacy constraints. Instead, the simulation environment was designed using operational knowledge of the Schiphol cargo area, published GHA capacity figures, and domain expertise gathered during the research process.
+This approach, using synthetic but operationally grounded parameters rather than real historical data, is standard in reinforcement learning research for logistics. When the goal is to evaluate whether an algorithm can learn a coordination policy, a well-calibrated simulation is a valid substitute for real data. Nikdast and Awasthi (2025) and Kousi et al. (2019) both use simulation as the primary evaluation ground for similar reasons.
+The simulation was built in Python using three main libraries. SimPy provides the discrete-event simulation engine. PettingZoo provides the multi-agent environment interface. BenchMARL provides the MAPPO training framework. The design of this environment is described in full in Section 3.2.
+System Design
+The core of this research is a heterogeneous multi-agent reinforcement learning system trained with the Multi-Agent Proximal Policy Optimization (MAPPO) algorithm. It consists of three agent types: a Transporter, four GHA agents, and an Orchestrator. Each agent type has a distinct observation space, action space, and reward function, reflecting its specific role in the logistics process.
+The artifact was developed iteratively. Early versions identified structural problems in the reward design, the action masking logic, and the observation space. These were corrected over multiple development cycles before the final training runs were executed. The whole project history and code follows standard coding convensions and is present on GitHub publicly at https://github.com/SnappierCape/ds-marl-air-cargo. The design of each agent is described in full in Section 3.4.
+Evaluation
+The artifact is evaluated by training it inside the simulation and analyzing the resulting training metrics. The evaluation measures two things: whether the agents learned a non-trivial policy (measured by entropy reduction and explained variance), and whether this learning produced better operational outcomes (measured by the KPIs defined in Section 3.6).
+Only one experimental scenario was tested: Scenario MO (Mixed-settings, Orchestrator), which includes all three agent types: Transporter, four GHAs, and the Orchestrator. A scenario without the Orchestrator (Scenario M (Mixed-setting, No Orchestrator)) was designed but not executed due to time constraints. The results therefore represent the full system as designed, and the contribution of the Orchestrator specifically cannot be isolated from the results of this study. This is acknowledged as a limitation in Chapter 5.
+The evaluation does not compare the trained policy against a real operational baseline. It compares the trained policy against an untrained baseline, in which all agents select uniformly at random from their set of valid actions at each step. This is the standard evaluation approach in reinforcement learning research.
+Theoretical Background: MARL and MAPPO
+Before describing the simulation and the agent design in detail, this section introduces the core concepts that underpin the AI system built in this thesis. Readers familiar with multi agent reinforcement learning may skip to the sext section.
+Basic Reinforcement Learning
+Reinforcement Learning (RL) is a method for training an autonomous decision-maker, called an agent, to behave well in an environment. The agent learns by interacting with the environment repeatedly. At each step, it observes the current state of the environment, selects an action, and receives a numerical reward that indicates how good or bad that action was. Over many interactions, the agent learns which actions tend to produce higher rewards.
+This is different from other machine learning approaches. In supervised learning, the model is trained on labeled examples provided by a human. In RL, no labeled examples exist. The agent discovers good behavior on its own, through trial and error.
+The RL framework is defined by four components:
+	State (S): a description of the current situation that the agent can observe
+	Action (A): a choice the agent can make at each step
+	Reward (R): a numerical signal the agent receives after each action
+	Policy (π): the rule the agent uses to select actions given the current state
+The goal of training is to find a policy that maximizes the total reward accumulated over time.
+Policy Optimization and Neural Networks
+In practice, the policy is represented as a neural network, this thesis assumes the reader has full understanding of Neural Networks.
+Proximal Policy Optimization (PPO) is a specific gradient descent algorithm for RL. It addresses a practical problem: if the weights are updated too aggressively, the policy can change so much in one step that it collapses and stops learning entirely. PPO solves this by clipping the gradient update, preventing the policy from changing too much at once. This makes training more stable and is one of the reasons PPO is widely used in complex environments.
+PPO also uses a second neural network called the critic. The critic does not select actions. Instead, it estimates the total future reward the agent can expect from the current state. This estimate, called the value function, is used to compute the advantage: how much better or worse a specific action was compared to what the agent would typically do in that state. The advantage is then used to update the policy network in a targeted way, amplifying actions that worked and discouraging actions that did not.
+From Single-Agent RL to Multi-Agent RL
+Standard RL assumes one agent interacting with a fixed environment. In this thesis, the environment contains multiple agents acting simultaneously: a Transporter, four GHA agents, and an Orchestrator. This setting requires Multi-Agent Reinforcement Learning (MARL).
+MARL introduces a fundamental difficulty. When multiple agents are learning at the same time, the environment is no longer stable from any single agent's perspective. The GHA agents are changing their slot-publishing behavior while the Transporter is changing its booking behavior. This means the "best action" for the Transporter today may not be the best action tomorrow, because the GHAs behave differently. The environment is said to be non-stationary.
+A second challenge is credit assignment: when a reward is shared across agents, it is difficult to determine which agent's action caused it. If all four GHAs publish slots and the Transporter books them efficiently, all agents receive a positive global reward, but each agent cannot easily tell whether its own contribution mattered.
+Project Architecture
+The simulation is built as a Digital Twin of the Schiphol cargo landside area. A Digital Twin is a digital model that replicates the structure and dynamics of a real world system closely enough that experiments performed inside the model produce results that are meaningful for the real world. In this case, the model replicates truck arrivals, dock operations, slot bookings, and the flow of cargo between the airport gate and the four GHA terminals.
+The simulation combines two established modeling paradigms. Discrete-Event Simulation (DES) models the system as a sequence of events that occur at specific points in time, for example, a truck arriving at the gate, a dock becoming available, or a slot being booked. Between events, the system state does not change. Agent-Based Modeling (ABM) models individual actors, trucks, GHA terminals, the transporter agent and the orchestrator as autonomous entities that observe their environment and take actions. The combination of DES and ABM is appropriate here because the system involves both process flows with defined durations and distributions, and autonomous decision-makers whose choices affect those flows.
+Technology Stack
+The simulation is implemented in Python 3.12 to ensure complete external library compatibility using three main libraries, each responsible for a distinct layer of the system.
+	SimPy is the discrete-event simulation engine. It manages the internal simulation clock, schedules events, and advances time. SimPy processes run as Python generators, yielding control back to the scheduler whenever they need to wait for an event, for example, when a truck waits for a dock to become free.
+	PettingZoo provides the multi-agent environment interface. It defines a standard API through which external training frameworks can interact with the simulation. The specific interface used is ParallelEnv, in which all agents submit their actions simultaneously at each time step, and the environment returns observations and rewards to all agents at once. This is a key architectural choice that allows to swap out every other module individually making the system much more flexible.
+	BenchMARL is the training framework. It wraps the PettingZoo environment using TorchRL and runs the MAPPO training loop. It handles data collection, minibatch sampling, policy updates, logging to Weights & Biases, and checkpointing.
+Figure 3.1 shows schematically how the modules interact.
+ 
+The Time Model
+The simulation uses a step-based time model to bridge the continuous time of SimPy with the discrete decision cycles required by MARL.
+One step corresponds to one minute of simulated time (step_min = 1). At each step, BenchMARL does three things in sequence: applies the actions submitted by all agents, advances SimPy by one minute, and returns the new observations and rewards.
+One episode consists of 1440 steps, equivalent to one full simulated day (24 hours × 60 minutes). This horizon was chosen because one day is the natural operational unit of a cargo airport. Within a single episode, agents experience the full daily demand cycle: the quiet early morning period, the midday buildup, the Friday-style afternoon peak, and the evening drainage. This cycle is essential for the agents to learn time-sensitive policies, for example, that publishing slots early in the day reduces congestion several hours later.
+The choice of step_min = 1 is a trade-off between temporal resolution and computational cost. A finer resolution (e.g., 1 second) would allow more precise slot timing but would increase the number of steps per episode, significantly increasing training time, which turned out to be already immense. One minute was judged sufficient given that the minimum slot duration in the DTP platform is several multiples of one minute.
+Physical Environment
+The physical environment models the Schiphol cargo landside area as a set of interconnected components. Several simplifications are applied relative to the real airport. These are listed explicitly in Section 3.8.
+	The Perimeter. The system boundary starts at a single entry gate, where trucks are identified and registered. This represents the ANPR checkpoint at the entrance of the cargo area. The system boundary ends when a truck exits after completing all its GHA stops.
+	The Road Network. Travel times between the gate, the TP3 buffer, and each GHA terminal are modeled as stochastic distributions. The road network is simplified to a set of origin-destination pairs, each with a mean and variance calibrated to reflect the physical distances and typical traffic conditions within the cargo perimeter.
+	The TP3 Buffer. TP3 (Truck Parking 3) is the central waiting area where trucks park when no dock slot is immediately available. It is modeled as a SimPy Resource with a defined maximum capacity (140 parking lots). When TP3 is full, overflow is tracked as a separate counter. In Scenario MO, the Orchestrator agent controls when trucks are released from TP3 and toward which GHA.
+	The GHA Terminals. The four GHA terminals (Dnata, KLM, WFS, and Swissport) are each modeled as two independent dock pools: one for export and one for import. The number of docks per flow type is set per GHA based on their real facility configurations. Each dock pool is a SimPy Resource. Service times at each dock follow a distribution parameterized by parcel count[UN1.1], reflecting the fact that larger shipments take longer to process.
+Demand Model
+Truck demand is generated synthetically by a DemandGenerator process that runs continuously inside SimPy throughout each episode.
+Trucks arrive according to a Poisson process with a time-varying arrival rate λ(t). [UN2.1]The rate varies across the day to reproduce the characteristic demand pattern of a cargo airport: the Friday afternoon surge is represented as the high end of this distribution. Future developments of this project could map more closely the real demand distribution during the day.
+Each truck is assigned the following attributes at the moment of creation:
+	flow_type: export or import, drawn from a fixed probability distribution
+	manifest: a list of GHA stops, drawn from a multi-stop probability distribution (between 1 and 4 stops)
+	parcel counts: the number of parcels to be handled at each GHA stop
+	origin: one of four source types (Netherlands random location, Road Feeder Service, Airport second-line logistics, TP3), which determines the initial travel time to the gate
+Once created, a truck enters the pending_trucks queue, where it waits for the Transporter agent to book its slots and dispatch it into the system.
+Infrastructure Layer and Event Logging
+The simulation includes a dedicated InfrastructureLayer class that records sensor events at every physical checkpoint in the system. The relative module is modeled after the real ANPR cameras and dock sensors that exist in the Schiphol cargo area.
+A SensorEvent is recorded each time a truck passes a checkpoint. The checkpoints are: GATE_IN, TP3_IN, TP3_OUT, GHA_IN, DOCK_START, DOCK_END, and GATE_OUT. Each event carries the truck identifier, the simulation timestamp, the flow type, and the relevant GHA identifier where applicable.
+Events are accumulated in a per-step buffer. At the end of each step, the buffer is flushed and passed to the KPITracker, which processes the events incrementally to update the running KPI accumulators. This incremental design is necessary because the KPITracker must produce a reward signal at every step, not only at the end of the episode.
+The KPITracker computes the following metrics from the event stream:
+	WPR (Wait-to-Process Ratio): total wait time divided by total service time across all trucks
+	Peak WPR: WPR computed only within the defined peak demand window
+	NTTP (Normalized Turnaround Time per Parcel): total turnaround time divided by parcel count, averaged across completed trucks
+	exp_wpr / imp_wpr: WPR computed separately for export and import trucks
+	flow_type_wpr_gap: the absolute difference between exp_wpr and imp_wpr, measuring whether the system treats both flow types equitably
+	util_std: standard deviation of dock utilization across the four GHA terminals, measuring load balance
+These metrics serve two purposes. During training, they feed into the reward functions described in Section 3.5. At episode end, they are logged as diagnostic outputs for analysis in Chapter 4.
+The Digital Truck Slot Planning Platform (DTP)
+The Digital Truck Slot Planning Platform (DTP) is the central coordination mechanism of the simulation. It is the digital equivalent of the real Schiphol DTP project. All slot-related operations (publishing, booking, cancelling, and modifying) pass through this module. No truck can be assigned to a GHA dock without a valid slot registered in the DTP.
+The DTPPlatform is implemented as a standalone Python class that the simulation environment, the demand generator, and all agents interact with through a defined set of methods. It maintains a registry of all slots across all GHAs and exposes query methods that agents use to inform their decisions. This architecture ensures all modifications to the registry pass through the correct methods for maximum consistency.
+DTP Rules
+This project operates under the conditions that the DTP (Digital Truck Slot Planning) system is already implemented at Schiphol. The DTP project is a real project present in the official Schiphol Roadmap, but currently it is not implemented yet. For this reason, this research is based on a set of synthetic rules that should replicate the actual goal of the project’s stakeholders in the future. In particular:
+	Every truck must have a confirmed DTP booking to pass the Main Gate. Enforced by Automatic Number Plate Recognition (ANPR) at the Main Gate. No exceptions.
+	Slots are 45-minutes time windows. One slot = one license plate = one time frame = one ground handler. One truck per slot.
+	All GHAs publish their slots on the shared DTP platform. Visible to all participants in real time. This is the only way to publish a slot.
+	DTP platform is operated by a neutral third party (Schiphol/ACN).
+	The Orchestrator has full authority to cancel or modify any booking unilaterally as long as the truck isn't already docked, without requiring Transporter or GHA acceptance. It can NOT remove a published slot from the DTP platform.
+	Minimum booking lead time is double the slot duration. After that slots are frozen: no new bookings, no cancellations. this is called the "frozen window".
+	GHAs may publish slots up to 72h before the start of the slot and before the frozen window starts.
+	Slots are divided into a "priority window" (first 10m) and a "release window" (m11 to slot end), the dock is held still until minute 10. Then the slot is available for the next trucks at the GHA queue or the trucks sitting at TP3. The DTP platform or the Orchestrator may release them. If the original truck shows up between minute 11 and slot end:
+	If the dock is still free → the original truck is admitted directly. No rebooking required. A late-penalty is logged against the transporter account for RL reward purposes but the truck proceeds.
+	If the dock is not free → the original truck is redirected to TP3 as a standby truck. It does not need to rebook a new slot. Its existing booking remains valid and it re-enters the queue when the Orchestrator or its own timing releases it.
+	A truck that shows up after its own slot has expired is recorded as "no show" and the penalty is logged for RL feedback purposes. The truck is redirected at tp3. It can book another slot or the Orchestrator can send it to a GHA.
+	The transporter can cancel a booking outside of the frozen window, only the Orchestrator can cancel a booking inside the froozen window.
+	GHAs can NOT retire a published slot.
+	GHAs have dedicated slots for import and export flows, a dock can NOT change its flow type.
+The simulation environment ensures these rules are enforced through plain python logic.
+For more information about the DTP project visit the official Schiphol SCMP Web Page.
+Slot Lifecycle
+Every slot in the DTP passes through a defined sequence of states. Figure 3.2 shows the state machine.
+ 
+	Published: a GHA agent has declared that a dock is available at a specific time window. The slot exists in the registry but is not yet assigned to any truck.
+	Booked: the Transporter or Orchestrator has assigned a specific truck to the slot. The dock is reserved.
+	Docked: the truck has physically arrived at the dock and service has started. This transition is triggered by the SimPy process inside the GHA terminal.
+	Closed: the truck has finished service and left the dock. The slot is complete.
+	No-show: the truck did not arrive within the maximum allowance window. The slot is marked as no_show and the dock is freed.
+Each transition is triggered by a specific event in the simulation and can only be executed by the appropriate actor. GHA agents trigger the published state. The Transporter and Orchestrator trigger the booked state. The SimPy GHA terminal process triggers docked, closed, and no_show. The Orchestrator can modify bookings unilaterally. No agent can skip a state or trigger a transition it does not own.
+Flow-Type Enforcement
+Every slot in the DTP carries a flow type: either export or import. This attribute is assigned at the moment of publication and cannot be changed.
+A truck can only book a slot that matches its own flow type. An export truck cannot book an import slot, and vice versa. This constraint is enforced at every booking entry point in the platform every method that directly touches slots state validate flow type before accepting a booking.
+The reason for this constraint is operational. In the real Schiphol cargo area, export and import operations occupy physically separate dock doors, use different handling equipment, and are subject to different customs procedures. Export cargo moves from truck to aircraft. Import cargo moves from aircraft to truck. Mixing the two at the same dock is not operationally possible.
+Each GHA terminal therefore maintains two independent dock pools: one for export and one for import. The number of docks in each pool is set per GHA based on their real facility configurations. The two pools do not share capacity. A fully occupied export pool does not affect the availability of import docks.
+This also applies at the publication level. When a GHA agent publishes a slot, it specifies the flow type. The capacity check at publication time, which ensures the number of simultaneously published slots does not exceed the number of physical docks, is performed separately for export and import.
+Booking Rules
+Several rules govern when a slot can be booked. These rules reflect the operational constraints of the real DTP system.
+	Freeze window. A slot cannot be booked if its start time is less than 90 minutes from the current simulation time. This prevents last-second bookings that would be operationally infeasible, in reality, a truck cannot be redirected to a dock with no preparation time. The freeze window is a fixed parameter set in the configuration.
+	Slot duration. Each slot represents a fixed time window of 45 minutes. When a truck is assigned to a slot starting at time T, it is expected to arrive at the dock between T and T + 10 minutes. Arrivals outside this window are recorded as late arrivals or no-shows depending on the degree of deviation.
+	Capacity enforcement. The DTP prevents over-publication. Before a new slot can be published at time T, the platform checks how many slots already exist in the window around T for that GHA and flow type. If the count equals or exceeds the number of physical docks of that flow type, the publication is rejected. This ensures that the number of simultaneously bookable slots never exceeds the physical dock capacity.
+Warm-Start Publication
+At the start of each episode, the DTP registry is empty. If nothing is published before the demand generator starts creating trucks, the Transporter agent will find no available slots and no trucks can be booked or dispatched. This is called the cold-start problem.
+To avoid this, the simulation executes a warm-start at reset(). For each GHA and each flow type, one slot per dock is published at the earliest bookable time (now + freeze_time + 1), with each slot staggered by a fraction of the slot duration to avoid all docks pointing to the exact same timestamp. This gives the demand generator enough initial supply to begin dispatching trucks in the first steps of the episode.
+Beyond the warm-start slots, all further slot publication is the responsibility of the GHA agents. If a GHA agent consistently selects the no-op action, its supply of available slots will be exhausted as trucks book them, and no further trucks will be dispatched to that terminal. This design ensures that the warm-start does not remove the GHA agents' responsibility. It only prevents an artificial cold-start failure in the first few minutes of the episode.
+Infrastructure Integration
+The DTP does not directly produce sensor events. However, its state is read by the InfrastructureLayer at each relevant checkpoint. When a truck arrives at a dock, the InfrastructureLayer queries the DTP to retrieve the booked slot window for that truck-GHA pair and attaches it to the DOCK_START event. This allows the KPITracker to compare the actual arrival time against the booked slot time, which is the basis for computing late arrivals and no-shows.
+The DTPPlatform also exposes several query methods that agents use to construct their observations at each step. The most frequently called is get_available_slots(gha, flow_type, horizon), which returns the list of slot start times that are published, unbooked, and within the given time horizon. This method is called multiple times per step across agents and observation vectors, and its computational cost scales with the size of the registry. This was actually one of the biggest inefficiencies in the whole codebase, see commit history for more detail on how it was handled.
+Multi-Agent System Design
+The simulation is modelled as a parallel multi-agent environment following the PettingZoo ParallelEnv interface. Six agents act simultaneously at each step: one Transporter, four GHA agents (Dnata, KLM, WFS, and Swiss), and one Orchestrator. The table below ssummarizes the role, count, observation dimension, and action dimension of each agent type.
+Agent	Real-world role	Count	Obs. dim	Action dim
+Transporter	Books and dispatches trucks	1	60	51
+GHA (Dnata, KLM, WFS, Swiss)	Publishes dock slots	4	17	193
+Orchestrator	Overrides bookings, manages TP3	1	64	251
+
+Because PettingZoo's parallel interface collects one action from every active agent before any of them are applied, the environment can enforce a clear priority order inside a single step. In practice, the Transporter and GHA agents act first, and the Orchestrator acts last. This means the Orchestrator can inspect, correct, or override whatever the Transporter decided in the same timestep, without requiring an additional communication round.
+Transporter Agent
+Observation space (60 features)
+The Transporter observes a 60-dimensional vector composed of four groups.
+The first group contains four global state features: TP3 occupancy ratio, a binary TP3 overflow indicator, and a sin/cos encoding of the current simulation time. The cyclical encoding is used instead of raw minutes because a raw value would make midnight appear distant from 23:59, while the actual operations at those two times are nearly identical. The sine/cosine pair maps any time onto a unit circle and removes this discontinuity.
+The second group adds eight features covering available slot counts at each GHA: one export count and one import count per GHA (4 GHAs × 2 = 8).
+The third group adds another eight features for current dock occupancy: one export occupancy and one import occupancy per GHA (4 × 2 = 8) , each normalised by the number of docks of that flow type, looking 120 minutes ahead.
+The fourth group is a per-truck feature block. For each of up to ten pending trucks, the Transporter observes four features: flow type (binary), booking ratio (number of booked stops divided by total stops), number of stops remaining (normalised), and the time when the truck entered the pending queue. This gives 10 × 4 = 40 features.
+Action space (51 actions)
+Action 0 is a no-op. Actions 1 to 40 each book a specific truck at a specific GHA (10 trucks × 4 GHAs = 40 combinations). Actions 41 to 50 each dispatch a specific truck, signalling that the truck is fully scheduled and can enter the hub.
+Action masking
+A book action is valid only if the target GHA is still a remaining stop for that truck, the truck does not already have a booking at that GHA, and at least one slot matching the truck's flow type exists within the 120-minute horizon. A dispatch action is valid only if every stop in the truck's manifest has been booked.
+Action masking is important in discrete MARL because without it the agent must learn on its own that certain actions are structurally impossible. This wastes policy capacity and slows learning incredibly. By zeroing out invalid actions in the logit mask before sampling, the policy is only ever trained on actions that can produce a meaningful outcome.
+GHA Agents
+Observation space (17 features)
+Each GHA agent observes 17 features. The first four describe its own terminal: export occupancy, import occupancy, export queue norm, and import queue norm. The next two give upcoming booking load at 45-minute and 90-minute horizons. Two features carry the sin/cos time-of-day encoding. One feature reports TP3 occupancy ratio as a system-wide signal. Six features cover the other three GHAs' export and import occupancies (3 × 2 = 6), giving the agent context for load balancing. The final two features report the agent's own slot coverage for export and import, normalised over a 270-minute horizon.
+Action space (193 actions)
+Action 0 is a no-op. Actions 1 to 96 each publish one export slot at a specific time window. Actions 97 to 192 do the same for import slots. The 96 windows are enumerated by dividing the 72-hour lead time (4,320 minutes) into consecutive 45-minute intervals, giving 4320 / 45 = 96 distinct slot positions.
+All four GHA agents share a single policy network. Their observation and action spaces are identical in dimension, and the GHA role is symmetric: each agent manages its own terminal using the same decision logic. Parameter sharing means the policy learns from four times as many transitions per batch, which accelerates convergence without requiring any structural changes to the algorithm.
+Action masking
+The attempts to publish slots when the maximum dock capacity is reached at a given timeframe or during the frozen window are once agein zeroed out from the illegal action mask to speed up the training.
+Orchestrator Agent
+Observation space (64 features)
+The Orchestrator observes 64 features. The first four are global: TP3 occupancy, overflow indicator, and sin/cos time-of-day.
+The next 20 cover all four GHA terminals in detail, with five features per GHA: export occupancy, import occupancy, export queue norm, import queue norm, and an upcoming booking count (4 × 5 = 20). The final 40 are the same per-truck feature block as the Transporter, covering up to ten pending trucks (10 × 4 = 40).
+Action space (251 actions)
+Action 0 is a no-op. Actions 1 to 40 book a truck at a GHA, bypassing the freeze-time guard that applies to standard transporter bookings (10 trucks × 4 GHAs = 40). Actions 41 to 50 force-dispatch a truck regardless of whether all stops are booked (10 trucks). Actions 51 to 90 cancel the booking of a specific truck at a specific GHA (10 × 4 = 40), which is blocked only if the truck is already docked. Actions 91 to 250 modify a truck's booking by moving it from one GHA to another (10 trucks × 4 source GHAs × 4 destination GHAs = 160).
+Override semantics and masking
+Because the Orchestrator's actions are applied after the Transporter's within the same step, it can correct any booking the Transporter made moments earlier. This implements a priority hierarchy without requiring an additional communication protocol or delayed observation.
+Masking enforces the same guards as the underlying DTP platform methods. A cancel action is valid only if the truck has an active booking at that GHA and is not currently docked. A modify action is valid only if a source booking exists, the source booking is not docked, and at least one slot of the correct flow type is available at the destination GHA. For same-GHA reschedules, the destination slot must be different from the one being vacated.
+The feasibility checks for this kind of action are rooted at a lower level in the DTP module. If the orchestrator tries to move a booking to a timeframe there that slot isn’t available the API call returns “False” and the Orchestrator can resort to free that slot in the next episode by modifying that booking, to then fir the first truck in that specific slot. Over time, as the training progresses, the Orchestrator learns that this behaviour is possible.
+Reward Engineering
+The reward function is the mechanism through which agents learn. It translates the operational goals of the system (reduce congestion, process trucks efficiently, maintain slot availability) into numerical signals that the MAPPO algorithm can optimize.
+This section describes how the reward is structured, what each component measures, and why each design choice was made.
+Reward Architecture
+Every agent receives a reward at each step that combines two components: a global reward shared across all agents, and a private reward specific to each agent type.
+The two components are mixed using a weighting parameter α (alpha):
+r_agent=scale*(α*r_private+(1-α)*r_global )
+The global reward reflects the overall health of the system at each step. It penalizes congestion and load imbalance. Because every agent receives it regardless of their individual action, it creates a cooperative incentive: all agents benefit when the system as a whole performs well.
+The private reward reflects the performance of the individual agent. It is specific to the agent's role and fires on events that are directly within that agent's control. It creates a local incentive that complements the global signal.
+The alpha parameter controls the balance between the two. For this reason it is called “Selfishness  Parameter”. A high alpha makes agents prioritize their own role. A low alpha makes agents prioritize the global system state. The value of alpha is set in the configuration and is the same for all agent types (in this case was set to 0.5, but it can be easily tweaked from the config file).
+The reward scale is a global multiplier applied to the entire reward signal before it is returned to the training framework. In early training runs, the raw reward values were in the range of −500 to −2000 per episode. This produced critic loss values in the thousands, which caused gradient norms that were too large for stable learning. Multiplying all rewards by reward_scale = 0.01 brought the per-step rewards into smaller ranges which the critic network can fit accurately with standard initialization. For more detail about the gradient explosion problem look here: https://machinelearningmastery.com/exploding-gradients-in-neural-networks/.
+Global Reward
+The global reward is computed once per step and passed to all agents. It is defined as:
+r_global  = -(w_wpr  × WPR + w_util  × util_std)
+WPR (Wait-to-Process Ratio) measures system-wide congestion. It is the ratio of total truck waiting time to total dock service time across all trucks that have generated events in the current episode. A WPR of zero means trucks spend no time waiting and they go directly to service. A WPR greater than one means trucks are spending more time waiting than being served.
+util_std is the standard deviation of dock utilization across the four GHA terminals. It measures load imbalance. If one GHA is fully occupied while another is idle, util_std is high. A system where all GHAs are equally loaded has a low util_std. This term incentivizes all agents to distribute truck traffic evenly.
+Both terms increase when the agents are taking worse decisions, for this reason the global reward has a “-“ in front, so that the agents receive increasingly negative rewards when doing worse decisions, and they bring the reward closer to zero when learning a better policy.
+Transporter Private Reward
+The Transporter's private reward penalizes four outcomes that are directly caused by poor booking and dispatching decisions.
+r_transporter  = -(w_wait  × Δwait + w_noshow  × Δnoshow  
+                 + w_late  × Δlate + w_pending  × Δpending)
+Δwait is the increase in total truck waiting time during this step. It accumulates from DOCK_START events: when a truck arrives at a GHA and has to wait before a dock becomes free, that waiting time is added to the running total. The Transporter is penalized for the delta rather than the cumulative total. During the first runs of this project the agents were penalized for the cumulative items instead of per-step items, but this made learning impossible because agents need to see immediate outcomes from their decisions. For this reason reward calculations were switched to per-step items.
+Δno_shows is the number of new no-show events in this step. A no-show occurs when a truck fails to arrive at its booked dock within the slot window. No-shows are primarily caused by poor timing: the Transporter dispatched a truck too late relative to its booked slot, or booked a slot that was incompatible with the truck's travel time.
+Δlate is the number of new late arrival events. A late arrival is less severe than a no-show (the truck arrived, but after the first 10 min of the slot start) and carries a lower weight.
+Δpending is the change in the number of trucks in the pending_trucks queue. This term is critical. Unlike the other three terms, it fires unconditionally every step regardless of whether any truck moved through the system. If the Transporter consistently takes the no-op action, pending trucks accumulate and this penalty grows continuously. This was introduced specifically to convince the Transporter to dispatch trucks, which otherwise was converging to a policy of 100% no_op to avoid negative returns.
+GHA Private Reward
+The GHA private reward combines four terms that reflect the terminal's operational state and its readiness to receive trucks.
+r_gha  = w_util  × util + w_proc  × Δproc - w_queue  × q + w_readiness  × slot_readiness
+util is the average dock occupancy across export and import docks at the current step. It rewards the GHA for keeping its docks in use. A terminal with idle docks is underperforming.
+Δproc is the number of trucks processed (dock service completed) in this step. It rewards throughput directly: each truck that finishes service produces a positive reward signal.
+q is the normalized queue length at the GHA entrance, summed across export and import queues. It penalizes the GHA for having trucks waiting at its gates that cannot enter a dock. A long queue indicates that the GHA has insufficient slot coverage or has published too few slots relative to incoming demand.
+slot_readiness is the fraction of theoretical maximum slot coverage that the GHA has published in the next 480 minutes, averaged across export and import. Specifically:
+slot_readiness  = (n_exp_published  / max_exp + n_imp_published / max_imp)
+where max_exp = n_export_docks × (480 / slot_duration) is the maximum number of export slots that could theoretically exist in the 480-minute window given the dock count and slot duration. The same calculation applies to import.
+This term was introduced after observing that without it, GHA agents failed to learn a meaningful publishing policy. The horizon of 480 minutes was set deliberately: a shorter horizon (60 minutes, used in early experiments) made nearly all publishing actions produce identical reward signals, because the agent could not distinguish between publishing now and publishing slightly later. A 480-minute horizon gives the agent enough temporal depth to develop a preference for when and how densely to publish slots.
+The slot_readiness term fires every step regardless of truck arrivals. This gives the GHA agent an immediate signal for its publishing decisions, rather than waiting 60–90 minutes for the consequence of a publishing action to appear as dock occupancy or queue changes.
+Orchestrator Private Reward
+The Orchestrator's private reward focuses on the two variables that the Orchestrator directly controls: the flow of trucks through TP3 and the total number of unprocessed trucks in the system.
+r_orchestrator  = -w_pending  × (Δparked + Δpending)
+Δparked is the change in the number of trucks currently parked in TP3. If TP3 is filling up, the Orchestrator is penalized. If the Orchestrator releases trucks from TP3 and the count decreases, the penalty reduces. This incentivizes the Orchestrator to actively manage the TP3 buffer rather than leaving trucks waiting there indefinitely.
+Δpending is the change in the total number of pending trucks: those that have not yet been dispatched into the system at all. Like the Transporter's pending term, this fires unconditionally every step and prevents the Orchestrator from converging to inaction.
+The Orchestrator reward uses the same pending_trucks weight as the Transporter. The two agents therefore share pressure to reduce the number of unprocessed trucks, but through different mechanisms: the Transporter reduces it by dispatching trucks, the Orchestrator reduces it by managing the downstream flow through TP3 so that dispatched trucks do not accumulate there.
+Summary
+Table below summarizes all reward terms, their firing condition, and the agent that receives them.
+Term	Agent	Fires when	Direction
+WPR	All	Every step	Negative
+util_std	All	Every step	Negative
+Δwait	Transporter	Trucks wait at dock	Negative
+Δno_shows	Transporter	No-show event	Negative
+Δlate	Transporter	Late arrival event	Negative
+Δpending (T)	Transporter	Every step	Negative
+util	GHA	Every step	Positive
+Δproc	GHA	Truck processed	Positive
+queue	GHA	Every step	Negative
+slot_readiness	GHA	Every step	Positive
+Δparked	Orchestrator	Every step	Negative
+Δpending (O)	Orchestrator	Every step	Negative
+
+Two observations follow from this table. First, the Transporter and Orchestrator have no positive reward terms: all their incentives are structured as penalties for bad states. This is intentional: in a congestion-management problem, the best achievable outcome is the absence of congestion, which maps naturally to a reward of zero as the upper bound. Second, the GHA is the only agent type with positive reward terms. This reflects the GHA's dual role: it is both penalized for queues (a bad state it should avoid) and rewarded for utilization and throughput (good states it should seek).
+During the initial runs, the project has faced a persistent “agent laziness” problem: the simulation layer was working, and the MARL engine was running through the epochs, but the agents found a way to “do nothing”, because they preferred a constant reward of 0 rather that trying to take actions and risk receiving negative rewards. For this reason a series of “laziness” reward components has been added, like slot_readiness, delta_parked, delta_pending, and so on, to induce the agents to really take actions and break through the initial stall.
+Training Framework
+This section describes how the MAPPO algorithm was configured and executed to train the agents defined in the previous sections. It covers the neural network architecture, the training hyperparameters, and the rationale behind the key choices.
+Framework and Hardware
+Training was executed using BenchMARL, a multi-agent reinforcement learning library developed over the last few years by the Facebook/Meta RL Team, built on top of TorchRL and PyTorch. BenchMARL handles the full training loop: environment rollout collection, replay buffer management, minibatch sampling, gradient updates, logging on W&B, and checkpointing.
+All experiments were run on a single machine equipped with an NVIDIA GeForce RTX 3090 GPU (24 GB VRAM). Policy updates were computed on the GPU. Environment rollout collection was performed on CPU, as the SimPy simulation cannot be parallelized on GPU. This made the whole project incredibly slot to train because the GPU was sitting at idle more than 99% of the time waiting for the Simpy environment to finish the simulation episode on CPU.
+The random seed was fixed to 42 across all runs to ensure reproducibility of weight initialization and environment stochasticity. However, the most recent Cuda libraries often use non-deterministic algorithms to edge out even more training speed, so results may vary slightly in a different setting. Fore more information about non-deterministic algorithms start looking here: https://thinkingmachines.ai/blog/defeating-nondeterminism-in-llm-inference/ or here: https://forums.developer.nvidia.com/t/fmadd-non-deterministic/8146.
+Neural Network Architecture
+Both the policy network and the critic network for each agent group use the same architecture: a Multilayer Perceptron (MLP) with two hidden layers of 128 units each, Tanh activation functions, and standard linear layer weights.
+Input (obs vector) → Linear(128) → Tanh → Linear(128) → Tanh → Output
+For the policy network, the output is a vector of logits over the action space. After action masking is applied, a softmax function converts the logits into a probability distribution from which the agent samples its action.
+For the critic network, the output is a single scalar representing the estimated value of the current state.
+The architecture is intentionally simple. More complex architectures, recurrent networks, attention mechanisms, graph neural networks, were considered but not used. The observation vectors are fixed-size, fully observable within each agent's scope, and do not require sequential memory. A two-layer MLP with 128 units is sufficient to represent the non-linear mappings required by agents with observation dimensions between 17 and 64.
+Each agent group has its own independent policy and critic network. Parameters are never shared across groups (Transporter, GHAs, Orchestrator). Within the GHA group, all four agents share a single policy and critic network, as described before.
+Episode and Batch Configuration
+One episode consists of 1440 steps. With six agents (one Transporter, four GHAs, one Orchestrator), one episode produces:
+1440 steps × 6 agents = 8,640 frames
+BenchMARL counts training progress in “frames”. One frame is a single action taken by a single agent in a single step. This is important for interpreting the training configuration parameters, which are all expressed in frames.
+The batch size is set to
+on_policy_collected_frames_per_batch = 138,240
+frames, which corresponds to exactly 16 complete episodes per training iteration:
+(138,240 frames)/(8,640 frames per episode)   = 16 episodes per batch
+Collecting 16 episodes per batch before each gradient update provides enough trajectory diversity to produce stable advantage estimates. With a batch of only 4 episodes (used in early experimental runs), advantage estimates had high variance and policy updates were noisy. The increase to 16 episodes was the primary change that produced stable learning.
+Collection is parallelized across workers using BenchMARL's parallel collection setting. With on_policy_n_envs_per_worker = 4, multiple environment instances run concurrently on CPU, reducing wall-clock collection time.
+PPO Hyperparameters
+	Discount factor (γ = 0.999). The discount factor determines how much the agent values future rewards relative to immediate ones. The effective planning horizon of the value function is approximately 1/(1 - γ), after that, observations become almost irrelevant.
+With γ = 0.99 (the common default), this horizon is approximately 100 steps. Less than 2 hours of simulated time in a 1440-step episode. A GHA agent that publishes a slot at step 50 does not see the throughput consequence of that action until step 140 or later, when trucks arrive and dock. With γ = 0.99, that consequence is discounted by 〖0.99〗^90  ≈ 0.40 and contributes little to the gradient. Setting γ = 0.999 extends the effective horizon to approximately 1000 steps, ensuring that the value function can bridge the temporal gap between slot publication and its downstream effect on dock utilization.
+	GAE lambda (λ = 0.99). Lambda controls the Generalized Advantage Estimation (GAE) calculation. GAE is the method MAPPO uses to estimate how much better or worse each action was compared to the expected value. A higher lambda gives more weight to actual observed returns and less weight to the critic's value estimate. With λ = 0.99 and γ = 0.999, the effective GAE horizon is approximately 500 steps, providing good coverage of the daily demand cycle within each episode.
+	Clip epsilon (ε = 0.2). This is the PPO clipping parameter described before. It limits how much the policy can change in a single gradient update. A value of 0.2 means the probability ratio between the new and old policy is constrained to the interval [0.8, 1.2]. This value is the standard PPO default and was retained throughout training.
+	Entropy coefficient (0.001). The entropy coefficient controls the strength of the entropy bonus added to the policy loss. A higher entropy bonus encourages exploration by penalizing overly deterministic policies. The coefficient was set to 0.001, lower than the common default of 0.01. This choice was made after observing that with 0.01, the GHA entropy bonus was strong enough to prevent the policy from committing to any action preference, keeping GHA entropy near its theoretical maximum throughout training.
+	Critic coefficient (0.5). This scales the critic loss relative to the policy loss in the combined objective. The value 0.5 is the standard MAPPO default.
+
+	Critic loss type (L2). The critic is trained using mean squared error between predicted values and observed returns.
+Minibatch Training
+After each batch of 138,240 frames is collected, the data is not used for a single gradient update. Instead, it is split into minibatches, and the gradient update is repeated multiple times over the same collected data.
+The minibatch size is set to 8,640 frames, exactly one episode worth of agent-frames. Each minibatch therefore contains one coherent trajectory per agent, which helps the critic produce consistent value estimates within each update step.
+The number of minibatch iterations is set to 16. This means the collected batch of 16 episodes is processed 16 times, producing:
+16 epochs × (138,240 / 8,640 ) minibatches per epoch = 16 × 16 = 256 gradient steps per training iteration
+The advantage of reusing collected data across multiple epochs is sample efficiency: 256 gradient updates are performed per collection round rather than just 16. The risk is that as the policy changes across epochs, the data collected under the old policy becomes increasingly stale, and the importance weights used by PPO diverge. The clip epsilon parameter is the mechanism that limits this divergence.
+Advantage normalization (minibatch_advantage = True) is applied within each minibatch. This subtracts the mean and divides by the standard deviation of the advantages within the minibatch before computing the policy gradient. It reduces variance across minibatches and improves training stability, particularly in the early phase of training when advantages can vary widely between episodes.
+Gradient Clipping
+Gradient clipping is applied to all parameter updates with a maximum norm of 5.0. This prevents a single large gradient update from destabilizing the network weights. It was particularly important for the Orchestrator and Transporter critics in early training, where the raw reward values (before scaling) produced critic loss values in the thousands and corresponding gradient norms in the hundreds. After the reward scale of 0.01 was applied, gradient norms stabilized, and the clipping value of 5.0 was rarely reached in later training iterations.
+Training Duration and Checkpointing
+The total training budget was set to 35,389,440 frames, corresponding to:
+35,389,440 / 138,240 = 256 training iterations[UN3.1]
+At approximately 800 seconds per iteration (collection + training), the full training run required approximately 57 hours of wall-clock time.
+Checkpoints were saved every 5 training iterations (checkpoint_interval = 5 × 138,240 = 691,200 frames), with a maximum of 3 checkpoints retained at any time. A final checkpoint was saved at the end of training. This policy ensured that progress was recoverable in the event of a hardware failure or power interruption.
+Evaluation was run every 10 training iterations (evaluation_interval = 1,382,400 frames).
+During evaluation, all agents execute deterministically: they select the highest-probability action rather than sampling, and no gradient updates are performed. Evaluation results are logged separately from collection results in Weights & Biases.
+Training Configuration Summary
+The table below summarizes all training hyperparameters used in the final experimental run.
+Parameter	Value	Notes
+Episode length	1,440 steps	One simulated day
+Frames per batch	138,240	16 complete episodes
+Minibatch size	8,640	1 episode per minibatch
+Minibatch iterations	16	PPO epochs per batch
+Gradient steps per iteration	256	16 × 16
+Discount factor γ	0.999	Extended horizon for 1440-step episodes
+GAE lambda λ	0.99	
+Learning rate	5 × 10⁻⁴	Adam optimizer
+Clip epsilon	0.2	PPO trust region
+Entropy coefficient	0.001	
+Critic coefficient	0.5	
+Gradient clip norm	5.0	
+Policy network	MLP [128, 128] Tanh	Per agent group
+Critic network	MLP [128, 128] Tanh	Per agent group
+Total frames	35,389,440	256 iterations
+Total training time	~57 hours	RTX 3090
+Random seed	42	
+For more detail look directly at the code
